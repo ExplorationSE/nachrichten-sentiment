@@ -13,7 +13,7 @@ Erfolg ist erreicht, wenn für Nvidia gilt:
 
 - Die Anzahl der Nachrichten zur Gesellschaft liegt taggenau vor, vom ersten Kalendertag mit GDELT-2.0-Daten in der Zeitzone Europe/Berlin (**19. Februar 2015**) bis zum jeweils letzten vollständig verarbeiteten Kalendertag. Die zugrunde liegende Quelle beginnt mit der Datei vom 18. Februar 2015, 23:00 UTC. Wo einzelne 15-Minuten-Dateien fehlen, bleibt die Lücke sichtbar (Abschnitt 9), statt als Null durchzugehen.
 - Jede Nachricht mit verfügbarem Titel trägt einen Stimmungswert im Intervall \([-1, +1]\): \(0\) ist neutral, \(+1\) maximal positiv, \(-1\) maximal negativ.
-- Eine statische Webseite zeigt die Entwicklung interaktiv (Anzahl und Stimmung) und listet nach Klick auf einen Tag die Schlagzeilen mit Wert.
+- Eine statische Webseite zeigt die Entwicklung interaktiv (positive und negative Anzahl als divergierende Balken, Stimmung als Linie) und listet nach Klick auf einen Tag die Schlagzeilen mit Wert.
 - Der einmalige Erstlauf ist nach Unterbrechung fortsetzbar. Danach ergänzt ein täglicher Lauf den Vortag, ohne laufende Kosten für Nachrichtenquellen oder das Stimmungsmodell.
 
 ## 2. Umfang
@@ -99,10 +99,12 @@ Zusätzlich werden am selben Kalendertag (Europe/Berlin, siehe Abschnitt 6.1) na
 
 Zwei Titel desselben Tages gelten als nahezu gleich, wenn die normalisierten Zeichenketten identisch sind **oder** ihre Ähnlichkeit nach `difflib.SequenceMatcher.ratio` mindestens **0,90** beträgt. Das zeitlich erste Vorkommen bleibt die Stammzeile; die weiteren werden als Nahduplikat markiert, aber nicht gelöscht. Artikel ohne Titel (`title_source = missing`) werden nicht als Nahduplikat behandelt und zählen in beiden Anzahlen einzeln.
 
-Beide Anzahlen sind sichtbar:
+Beide Anzahlen bleiben sichtbar, aber nicht als Balken:
 
-- **Hauptwert** (Balken im Diagramm): Anzahl nach Entfernen gleicher URLs.
-- **Zusatzwert** (Kurzinfo im Diagramm und Kopf der Tagesliste): dieselbe Menge ohne Nahduplikate (jedes Nahduplikat-Cluster zählt als eins).
+- **Hauptwert** (`count_unique_url`): Anzahl nach Entfernen gleicher URLs. Er erscheint im Tooltip und im Kopf der Tagesliste, nicht als Balkenserie.
+- **Zusatzwert** (`count_after_near_dup_collapse`): dieselbe Menge ohne Nahduplikate (jedes Nahduplikat-Cluster zählt als eins), ebenfalls im Tooltip und im Kopf der Tagesliste.
+
+Die Balken im Hauptdiagramm zeigen nicht diese Gesamtzahlen, sondern die Anzahl positiver und negativer Nachrichten nach FinBERT-argmax (Abschnitt 8.1), bezogen auf die URL-eindeutigen Artikel.
 
 In der Tagesliste erscheinen alle URL-eindeutigen Schlagzeilen; Nahduplikate werden an der Stammzeile gruppiert dargestellt.
 
@@ -119,7 +121,7 @@ und liegt damit automatisch in \([-1, +1]\).
 Zusätzlich wird die vom Modell bevorzugte Klasse (argmax über die drei Wahrscheinlichkeiten) gespeichert: `positive`, `neutral` oder `negative`.
 
 - Der **Tagesmittelwert** ist das arithmetische Mittel der `sentiment`-Werte aller URL-eindeutigen Artikel dieses Tages, die einen Wert haben (einschließlich Nahduplikate). Artikel ohne Titel bzw. ohne Wert gehen nicht in den Mittelwert ein; fehlen an einem vollständig verarbeiteten Tag alle Werte, ist der Mittelwert `null` (Lücke in der Stimmungslinie, nicht `0`).
-- Die **Anzahl positiv / negativ** zählt URL-eindeutige Artikel nach der argmax-Klasse. Die neutrale Klasse zählt zur Gesamtzahl, aber nicht zu positiv oder negativ. Artikel ohne Wert bilden eine gesonderte Zahl `count_without_sentiment` und erscheinen in der Tagesliste ohne numerischen Wert.
+- Die **Anzahlen positiv, neutral und negativ** zählen URL-eindeutige Artikel nach der argmax-Klasse. Alle drei sind Pflichtfelder der Tageszeile. Im Diagramm werden nur positiv (Balken nach oben) und negativ (Balken nach unten) gezeichnet; die neutrale Anzahl und die Gesamtzahl erscheinen im Tooltip (Abschnitt 8.1). Artikel ohne Wert bilden eine gesonderte Zahl `count_without_sentiment` und erscheinen in der Tagesliste ohne numerischen Wert; ist sie größer als null, nennt der Tooltip sie zusätzlich. Es gilt `count_positive + count_neutral + count_negative + count_without_sentiment = count_unique_url`.
 
 Ein großes KI-Sprachmodell ist nicht Bestandteil dieses Umfangs (Abschnitt 12).
 
@@ -143,13 +145,14 @@ Je behaltenem (URL-eindeutigem) Artikel:
 ### 6.3 Inhalt einer Tageszeile
 
 - `date` (Europe/Berlin)
-- `count_unique_url` (Hauptwert)
-- `count_after_near_dup_collapse` (Zusatzwert)
-- `count_positive`, `count_negative`, `count_neutral`, `count_without_sentiment`
-- `sentiment_mean` (Zahl oder `null`)
+- `count_unique_url` (Gesamtzahl nach URL-Deduplizierung; Tooltip und Tagesliste, nicht als Balken)
+- `count_after_near_dup_collapse` (Zusatzwert; Tooltip und Tagesliste)
+- `count_positive`, `count_neutral`, `count_negative` (argmax-Anzahlen der URL-eindeutigen Artikel; positiv und negativ sind die Balkenserien, neutral nur im Tooltip)
+- `count_without_sentiment`
+- `sentiment_mean` (Zahl oder `null`; Stimmungslinie)
 - `coverage` (`complete` | `gap`): `complete`, wenn alle für diesen Berlin-Tag erwarteten 15-Minuten-Dateien erfolgreich verarbeitet wurden (auch wenn die Nvidia-Anzahl 0 ist); `gap`, wenn mindestens eine Datei fehlt oder unlesbar blieb.
 
-Ein erfolgreich verarbeiteter Tag ohne Nvidia-Nachricht ist eine echte Null und wird als Balken der Höhe 0 gezeigt. Ein Tag mit `coverage = gap` wird im Diagramm als **Lücke** gezeigt, nicht als Null, damit fehlende oder unvollständige Quelle nicht wie ein ruhiger oder vollständiger Tag aussieht. Bereits gesammelte Artikel dieses Tages bleiben gespeichert; sobald die fehlenden Dateien nachgeholt sind, wird die Tageszeile neu berechnet und erst dann als `complete` angezeigt. Die Tagesliste eines solchen Tages darf geöffnet werden, trägt aber den Hinweis „unvollständig“.
+Ein erfolgreich verarbeiteter Tag ohne Nvidia-Nachricht ist eine echte Null: keine Ausschläge über oder unter der Nulllinie (Balkenhöhe 0), die Nulllinie bleibt stehen, der Tooltip nennt 0 Nachrichten. Ein Tag nur mit neutralen Meldungen sieht in den Balken ebenso ohne Ausschlag aus, unterscheidet sich aber im Tooltip (Gesamtzahl und neutrale Anzahl größer als 0) und gegebenenfalls in der Stimmungslinie. Ein Tag mit `coverage = gap` wird in beiden Diagrammen als **Lücke** gezeigt, nicht als echte Null, damit fehlende oder unvollständige Quelle nicht wie ein ruhiger oder vollständiger Tag aussieht. Bereits gesammelte Artikel dieses Tages bleiben gespeichert; sobald die fehlenden Dateien nachgeholt sind, wird die Tageszeile neu berechnet und erst dann als `complete` angezeigt. Die Tagesliste eines solchen Tages darf geöffnet werden, trägt aber den Hinweis „unvollständig“.
 
 ### 6.4 Dateien
 
@@ -190,12 +193,14 @@ Die Konfiguration der Gesellschaft (Ticker `NVDA`, Anzeigename, Suchbegriffe) li
 
 ### 8.1 Darstellung
 
-- Oben: tägliche Nachrichtenanzahl als Balken (Hauptwert `count_unique_url`). Zusatzwert nach Nahduplikat-Berechnung in der Kurzinfo (Tooltip bzw. Legende) und im Kopf der Tagesliste.
-- Darunter: Stimmung als Linie (`sentiment_mean`), mit Nulllinie. Tage ohne Mittelwert unterbrechen die Linie.
+- Oben: Hauptdiagramm als Balken um eine Nulllinie. Die Nulllinie steht für den neutralen Bereich: von ihr aus gehen **grüne Balken** (`--up`, `#26a69a`) nach oben mit der Anzahl positiver Nachrichten des Tages und **rote Balken** (`--down`, `#ef5350`) nach unten mit der Anzahl negativer Nachrichten, jeweils nach FinBERT-argmax (`count_positive` bzw. `count_negative`). Beide Richtungen teilen sich eine gemeinsame Anzahl-Skala. Die neutrale Anzahl und die Gesamtzahl werden **nicht** als Balken gezeichnet.
+- Beim Überfahren eines Tages erscheint ein Tooltip, der Gesamtzahl, Klassen und Stimmung nennt, zum Beispiel: „120 Nachrichten: 45 positiv, 50 neutral, 25 negativ, Stimmung +0,18“. Ist `count_without_sentiment` größer als 0, wird das zusätzlich genannt (etwa „5 ohne Wert“). Fehlt der Tagesmittelwert, entfällt die Angabe „Stimmung …“ oder sie erscheint als „Stimmung —“. Der Zusatzwert nach Nahduplikat-Berechnung erscheint in diesem Tooltip und im Kopf der Tagesliste.
+- Darunter: Stimmung als Linie (`sentiment_mean`) im Intervall \([-1, +1]\), mit Nulllinie. Abschnitte über 0 werden grün (`--up`) eingefärbt, Abschnitte unter 0 rot (`--down`). Tage ohne Mittelwert unterbrechen die Linie.
+- Balken und Linie können voneinander abweichen, weil sie Unterschiedliches messen: Die Balken zählen Kategorien nach argmax (welche Klasse die größte Wahrscheinlichkeit hat), die Linie den abgestuften Tagesmittelwert \(P(\text{positiv}) - P(\text{negativ})\). Viele schwach positive Meldungen und wenige stark negative können deshalb mehr grüne als rote Balken zeigen, während die Linie unter 0 liegt — oder umgekehrt. Neutrale Meldungen erscheinen nicht in den Balken, fließen aber mit Werten nahe 0 in die Linie ein, sofern ein Stimmungswert vorliegt.
 - Zoom und Zeitraumwahl, in der Bedienung an SE Aktien angelehnt. Zeitraum-Chips: 1 Monat, 3 Monate, 1 Jahr, 5 Jahre, Maximum.
 - Klick auf einen Tag öffnet die Liste der URL-eindeutigen Schlagzeilen dieses Tages mit Stimmungswert (oder Hinweis „Titel nicht verfügbar“). Nahduplikate sind an der Stammzeile gruppiert. Jede Zeile verlinkt auf die Artikel-URL.
 
-Tage mit `coverage = gap` erscheinen in beiden Diagrammen als Lücke.
+Tage mit `coverage = gap` erscheinen in beiden Diagrammen als Lücke, nicht als Balken der Höhe 0.
 
 ### 8.2 Farben und Erscheinungsbild (SE Aktien)
 
@@ -217,9 +222,9 @@ Die Vorgabe ist das öffentliche Erscheinungsbild von SE Aktien (Repository `Exp
 
 Schrift: `system-ui, -apple-system, Segoe UI, Roboto, sans-serif`. Karten und Suchfelder mit 12px Rundung, Schalter 8px, Zeitraum-Chips als Kapseln. Die eigene Wortmarken-Schrift von SE Aktien wird nicht übernommen; dieses Werkzeug ist eigenständig und trägt den Arbeitstitel **Nachrichten-Sentiment**, Untertitel „Nvidia (NVDA)“.
 
-Diagrammfarben: Anzahl-Balken in `--acc`, Stimmungslinie in `--txt` bzw. `--acc`, Werte über null an `--up` und unter null an `--down` orientiert, Nulllinie und Raster in `--line`.
+Diagrammfarben: positive Balken und der Teil der Stimmungslinie über 0 in `--up` (`#26a69a`), negative Balken und der Teil der Linie unter 0 in `--down` (`#ef5350`), Nulllinien und Raster in `--line`. `--acc` bleibt der Akzent für Bedienungselemente, nicht für die Balkenserie.
 
-Als Chart-Bibliothek wird **TradingView Lightweight Charts** verwendet, wie in SE Aktien (`lwc.js`, lokal eingebunden). Zoom, Zeitraumwahl und zwei übereinanderliegende Bereiche (Balken oben, Linie unten) sind damit vorgesehen. Für den Klick auf einen Tag darf eine dünne eigene Interaktionsschicht über dem Chart liegen; ein Wechsel der Bibliothek ist nur zulässig, wenn Lightweight Charts diese Darstellung nachweislich nicht tragen kann.
+Als Chart-Bibliothek wird **TradingView Lightweight Charts** verwendet, wie in SE Aktien (`lwc.js`, lokal eingebunden). Zoom, Zeitraumwahl und zwei übereinanderliegende Bereiche (divergierende Positiv/Negativ-Balken um die Nulllinie oben, Stimmungslinie unten) sind damit vorgesehen. Für den Klick auf einen Tag und den Tooltip darf eine dünne eigene Interaktionsschicht über dem Chart liegen; ein Wechsel der Bibliothek ist nur zulässig, wenn Lightweight Charts diese Darstellung nachweislich nicht tragen kann.
 
 ## 9. Fehlerbehandlung und Betrieb
 
@@ -227,7 +232,7 @@ Als Chart-Bibliothek wird **TradingView Lightweight Charts** verwendet, wie in S
 - Der Sammler merkt sich den letzten erfolgreich verarbeiteten 15-Minuten-Satz. Ein unterbrochener Erstlauf beginnt nicht von vorn.
 - Schlägt der tägliche Lauf fehl, wird **keine** neue GitHub-Pages-Version veröffentlicht. Die bisherige Seite bleibt unverändert online. GitHub sendet die übliche Fehlerbenachrichtigung per E-Mail an den Repository-Inhaber; dafür müssen die E-Mail-Benachrichtigungen für Actions beim Konto ExplorationSE eingeschaltet sein.
 - Fehlgeschlagenes Titelnachladen wird je URL in `progress.json` festgehalten und nicht endlos wiederholt; eine spätere, bewusst ausgelöste Wiederholung bleibt möglich.
-- Die Webseite darf bei `coverage = gap` den Tag nicht als vollständige Anzahl 0 darstellen.
+- Die Webseite darf bei `coverage = gap` den Tag nicht als echte Null darstellen (keine Balken der Höhe 0 und kein Tooltip „0 Nachrichten“ so, als wäre der Tag vollständig leer).
 
 ## 10. Tests
 
@@ -239,7 +244,7 @@ Unit-Tests mit kleinen, festen Beispieldaten, ohne Netz und ohne das volle FinBE
 - URL-Normalisierung und globales Entfernen gleicher Adressen (erstes Vorkommen bleibt).
 - Erkennung nahezu gleicher Titel am selben Tag, getrennte Zählung beider Anzahlen und das Nicht-Gruppieren von Artikeln ohne Titel.
 - Umrechnung FinBERT-Wahrscheinlichkeiten in den Wert \(P(\text{positiv}) - P(\text{negativ})\) einschließlich der Intervallgrenzen und der argmax-Klasse.
-- Bildung der Tageswerte, einschließlich echter Null bei vollständiger Abdeckung, Lücke bei `coverage = gap` (auch wenn bereits Teilartikel vorliegen) sowie Mittelwert ohne Artikel mit `sentiment = null`.
+- Bildung der Tageswerte, einschließlich der Pflichtfelder `count_positive`, `count_neutral` und `count_negative`, der Summe `count_positive + count_neutral + count_negative + count_without_sentiment = count_unique_url`, echter Null bei vollständiger Abdeckung (Balkenhöhe 0, nicht verwechseln mit einem Tag nur aus Neutralen), Lücke bei `coverage = gap` (auch wenn bereits Teilartikel vorliegen) sowie Mittelwert ohne Artikel mit `sentiment = null`.
 
 Plausibilitätstest am echten FinBERT-Modell mit einer Handvoll fest hinterlegter, eindeutiger Schlagzeilen: klar positive Titel (etwa eine Prognoseanhebung) müssen `sentiment > 0` und die Klasse `positive` erhalten; klar negative (etwa ein deutlicher Rückgang oder eine Untersuchung) müssen `sentiment < 0` und die Klasse `negative` erhalten.
 
@@ -252,9 +257,9 @@ Diese Punkte waren in der Abstimmung noch nicht Satz für Satz festgelegt und we
 1. Titel ohne `PAGE_TITLE` (insbesondere vor dem 22. September 2019) werden einmalig von der Artikel-URL nachgeladen; ohne Titel keine Stimmung, aber Zählung bleibt (Abschnitt 3.2). Das Nachladen dient nicht dazu, weitere Artikel zu entdecken (Abschnitt 4.1).
 2. Nur der englische GDELT-2.0-Strom, nicht der Übersetzungsstrom.
 3. Tagesschnitt ist der Kalendertag Europe/Berlin auf Basis des UTC-Dateinamens der GDELT-Datei. Der erste dargestellte Tag ist der 19. Februar 2015.
-4. Anzahl positiv/negativ folgt der FinBERT-Klasse (argmax), nicht einem Schwellenwert auf dem kontinuierlichen Wert.
+4. Anzahl positiv, neutral und negativ folgt der FinBERT-Klasse (argmax), nicht einem Schwellenwert auf dem kontinuierlichen Wert. Die Balken verwenden nur positiv und negativ; die Linie verwendet den abgestuften Tagesmittelwert.
 5. Ähnlichkeitsschwelle für Nahduplikate ist 0,90 auf normalisierten Titeln desselben Berlin-Tages; Artikel ohne Titel werden nicht gruppiert.
-6. Diagramm-Hauptwert ist die Anzahl nach URL-Deduplizierung.
+6. Alle Diagramm- und Tooltip-Anzahlen (gesamt, positiv, neutral, negativ) beziehen sich auf URL-eindeutige Artikel. Die Gesamtzahl und der Zusatzwert nach Nahduplikat-Berechnung erscheinen im Tooltip und im Kopf der Tagesliste, nicht als Balken.
 7. Arbeitstitel der Seite: „Nachrichten-Sentiment“.
 8. Der Erstlauf läuft lokal oder in mehreren fortsetzbaren Action-Läufen; nur der tägliche Lauf ist fest an eine GitHub Action um 06:00 Europe/Berlin gebunden.
 
