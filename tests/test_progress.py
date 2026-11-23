@@ -1,3 +1,5 @@
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from nachrichten_sentiment.models import ProgressState
@@ -6,6 +8,7 @@ from nachrichten_sentiment.progress import (
     batches_to_process,
     load_progress,
     mark_gap,
+    mark_missing_at_source,
     mark_success,
     processed_batch_ids,
     save_progress,
@@ -54,3 +57,47 @@ def test_processed_batch_ids_only_contain_actual_successes():
     mark_success(state, "20150218230000")
     assert state.last_success_batch_id == "20150219000000"
     assert processed_batch_ids(state) == {"20150218230000", "20150219000000"}
+
+
+def test_missing_at_source_roundtrip_and_backward_compatible_load(tmp_path: Path):
+    old = tmp_path / "old.json"
+    old.write_text(json.dumps({"cursor_batch_id": "20150218230000", "open_gaps": [], "successful_spans": []}), encoding="utf-8")
+    assert load_progress(old).missing_at_source == []
+    state = ProgressState(None, None, ["20150218231500"], {})
+    mark_missing_at_source(state, "20150218231500")
+    assert state.missing_at_source == ["20150218231500"]
+    assert state.open_gaps == []  # nicht doppelt gefuehrt
+    assert state.cursor_batch_id == "20150218231500"
+    assert "20150218231500" not in processed_batch_ids(state)
+    path = tmp_path / "progress.json"
+    save_progress(path, state)
+    assert load_progress(path).missing_at_source == ["20150218231500"]
+
+
+def test_old_missing_at_source_only_retried_when_recent_or_requested():
+    now = datetime(2026, 11, 23, 12, 0, tzinfo=timezone.utc)
+    state = ProgressState(None, "20261123100000", [], {})
+    old_missing = "20180101000000"
+    recent_missing = "20261120000000"
+    mark_missing_at_source(state, old_missing)
+    mark_missing_at_source(state, recent_missing)
+    todo = batches_to_process(state, "20261123100000", now=now)
+    assert old_missing not in todo
+    assert recent_missing in todo
+    todo_retry = batches_to_process(state, "20261123100000", now=now, retry_missing=True)
+    assert old_missing in todo_retry
+    assert recent_missing in todo_retry
+    assert len(todo_retry) == len(set(todo_retry))
+
+
+def test_span_closes_after_recovered_missing_batch():
+    state = ProgressState(None, None, [], {})
+    a, b, c = "20150218230000", "20150218231500", "20150218233000"
+    mark_success(state, a)
+    mark_missing_at_source(state, b)
+    mark_success(state, c)
+    assert state.successful_spans == [[a, a], [c, c]]
+    mark_success(state, b)
+    assert state.successful_spans == [[a, c]]
+    assert state.missing_at_source == []
+    assert processed_batch_ids(state) == {a, b, c}

@@ -23,8 +23,11 @@ def gkg_url(batch_id: str) -> str:
     return f"https://data.gdeltproject.org/gdeltv2/{batch_id}.gkg.csv.zip"
 
 
+USER_AGENT = "NachrichtenSentiment/0.1"
+
+
 def _default_fetcher(url: str) -> bytes:
-    response = requests.get(url, timeout=60)
+    response = requests.get(url, timeout=60, headers={"User-Agent": USER_AGENT})
     if response.status_code == 404:
         batch_id = url.rsplit("/", 1)[-1].split(".")[0]
         raise MissingGkgError(batch_id)
@@ -43,18 +46,17 @@ def download_gkg_zip(
     target = dest_dir / f"{batch_id}.gkg.csv.zip"
     url = gkg_url(batch_id)
     fetch = fetcher or _default_fetcher
-    last_error: Exception | None = None
+    last_error: DownloadError | None = None
     for attempt in range(1, retries + 1):
         try:
             data = fetch(url)
             target.write_bytes(data)
             return target
         except MissingGkgError:
-            last_error = MissingGkgError(batch_id)
+            # 404: die Datei fehlt an der Quelle; ein erneuter Versuch hilft nicht.
+            raise MissingGkgError(batch_id) from None
         except Exception as exc:  # noqa: BLE001
             last_error = DownloadError(batch_id, str(exc))
         if attempt < retries and backoff_seconds:
             time.sleep(backoff_seconds * attempt)
-    if isinstance(last_error, MissingGkgError):
-        raise last_error
     raise last_error or DownloadError(batch_id, "unknown error")

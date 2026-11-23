@@ -143,3 +143,21 @@ def test_probelauf_uses_separate_root_and_leaves_main_state_untouched(tmp_path: 
     cli.main(["probelauf", "--start", "2019-09-23", "--days", "1", "--fixture-dir", str(fixtures), "--root", str(custom)])
     assert (custom / "data" / "state" / "progress.json").exists()
     assert not (main_root / "data" / "state" / "progress.json").exists()
+
+
+def test_cli_luecken_erneut_is_passed_to_initial_and_daily(tmp_path: Path, monkeypatch):
+    from nachrichten_sentiment import cli
+
+    parser = build_parser()
+    assert parser.parse_args(["erstlauf"]).luecken_erneut is False
+    assert parser.parse_args(["erstlauf", "--luecken-erneut"]).luecken_erneut is True
+    assert parser.parse_args(["tageslauf", "--luecken-erneut"]).luecken_erneut is True
+    seen: dict = {}
+    monkeypatch.setattr(cli, "default_root", lambda: tmp_path)
+    monkeypatch.setattr(cli, "_model", lambda: _Model())
+    monkeypatch.setattr(cli, "run_initial", lambda *a, **k: seen.setdefault("initial", k))
+    monkeypatch.setattr(cli, "run_daily", lambda *a, **k: seen.setdefault("daily", k))
+    cli.main(["erstlauf", "--luecken-erneut"])
+    cli.main(["tageslauf"])
+    assert seen["initial"]["retry_missing"] is True
+    assert seen["daily"]["retry_missing"] is False

@@ -17,6 +17,12 @@ def build_parser() -> argparse.ArgumentParser:
     erstlauf.add_argument("--until", default=None, help="letzter Satz YYYYMMDDHHMMSS")
     tageslauf = sub.add_parser("tageslauf", help="Vortag in Europe/Berlin plus offene Lücken")
     tageslauf.add_argument("--day", default=None, help="Zieltag YYYY-MM-DD")
+    for command in (erstlauf, tageslauf):
+        command.add_argument(
+            "--luecken-erneut",
+            action="store_true",
+            help="auch an der Quelle fehlende Sätze (GDELT 404) älter als 7 Tage erneut abrufen",
+        )
     probelauf = sub.add_parser("probelauf", help="einige Berlin-Tage zur Probe verarbeiten")
     probelauf.add_argument("--start", required=True, help="erster Tag YYYY-MM-DD")
     probelauf.add_argument("--days", type=int, default=7, help="Anzahl Berlin-Tage ab --start (Standard 7)")
@@ -50,10 +56,10 @@ def main(argv: list[str] | None = None) -> int:
     company = load_company("NVDA")
     model = _model()
     if args.command == "erstlauf":
-        run_initial(paths, company, model, http_title_opener, until_id=args.until)
+        run_initial(paths, company, model, http_title_opener, until_id=args.until, retry_missing=args.luecken_erneut)
     elif args.command == "tageslauf":
         day = date.fromisoformat(args.day) if args.day else None
-        run_daily(paths, company, model, http_title_opener, day=day)
+        run_daily(paths, company, model, http_title_opener, day=day, retry_missing=args.luecken_erneut)
     elif args.command == "probelauf":
         fetcher = _fixture_fetcher(Path(args.fixture_dir)) if args.fixture_dir else None
         # Eigener Zustand, damit der Cursor des Probelaufs den Erstlauf nicht verschiebt.

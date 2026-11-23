@@ -68,7 +68,8 @@ def test_trial_week_gap_resume_and_site_files(tmp_path: Path):
     # Resume with the full fetcher and normal zip extraction.
     run_trial(paths, company, _Model(), lambda url, timeout: "", start, days=7, fetcher=fetcher)
     progress = load_progress(paths.progress_path)
-    assert missing in progress.open_gaps
+    assert missing in progress.missing_at_source
+    assert missing not in progress.open_gaps
     daily = json.loads((tmp_path / "site" / "data" / "nvda-daily.json").read_text(encoding="utf-8"))
     days = {row["date"]: row for row in daily["days"]}
     assert daily["days"][0]["date"] == "2015-02-19"
@@ -77,6 +78,8 @@ def test_trial_week_gap_resume_and_site_files(tmp_path: Path):
     assert days["2019-09-22"]["coverage"] == "gap"
     assert days["2019-09-23"]["coverage"] == "gap"
     assert days["2019-09-23"]["count_unique_url"] == 1
+    assert days["2019-09-23"]["gap_reason"] == "source_missing"
+    assert days["2019-09-22"]["gap_reason"] is None
     assert days["2019-09-24"]["coverage"] == "complete"
     assert days["2019-09-24"]["count_unique_url"] == 1
     assert days["2019-09-24"]["count_positive"] == 1

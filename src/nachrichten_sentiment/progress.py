@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from nachrichten_sentiment.models import ProgressState
-from nachrichten_sentiment.timeutil import FIRST_BATCH_ID, iter_batch_ids, next_batch_id
+from nachrichten_sentiment.timeutil import FIRST_BATCH_ID, datetime_from_batch_id, iter_batch_ids, next_batch_id
+
+# Ein 404 auf einen jungen Satz kann an verspäteter Veröffentlichung liegen; ältere gelten als dauerhaft fehlend.
+MISSING_RETRY_WINDOW = timedelta(days=7)
 
 
 def load_progress(path: Path) -> ProgressState:
@@ -18,6 +21,7 @@ def load_progress(path: Path) -> ProgressState:
         open_gaps=list(raw.get("open_gaps", [])),
         failed_title_fetches=dict(raw.get("failed_title_fetches", {})),
         successful_spans=[list(span) for span in raw.get("successful_spans", [])],
+        missing_at_source=list(raw.get("missing_at_source", [])),
     )
 
 
@@ -31,6 +35,7 @@ def save_progress(path: Path, state: ProgressState) -> None:
                 "open_gaps": state.open_gaps,
                 "failed_title_fetches": state.failed_title_fetches,
                 "successful_spans": state.successful_spans,
+                "missing_at_source": state.missing_at_source,
             },
             indent=2,
             sort_keys=True,
@@ -64,20 +69,39 @@ def _merge_successful_span(spans: list[list[str]], batch_id: str) -> list[list[s
     return merged
 
 
+def _advance_cursor(state: ProgressState, batch_id: str) -> None:
+    if state.cursor_batch_id is None or batch_id > state.cursor_batch_id:
+        state.cursor_batch_id = batch_id
+
+
 def mark_success(state: ProgressState, batch_id: str) -> None:
     if batch_id in state.open_gaps:
         state.open_gaps.remove(batch_id)
+    if batch_id in state.missing_at_source:
+        state.missing_at_source.remove(batch_id)
     if state.last_success_batch_id is None or batch_id > state.last_success_batch_id:
         state.last_success_batch_id = batch_id
-    state.cursor_batch_id = batch_id if state.cursor_batch_id is None or batch_id > state.cursor_batch_id else state.cursor_batch_id
+    _advance_cursor(state, batch_id)
     state.successful_spans = _merge_successful_span(state.successful_spans, batch_id)
 
 
 def mark_gap(state: ProgressState, batch_id: str) -> None:
+    if batch_id in state.missing_at_source:
+        state.missing_at_source.remove(batch_id)
     if batch_id not in state.open_gaps:
         state.open_gaps.append(batch_id)
         state.open_gaps.sort()
-    state.cursor_batch_id = batch_id if state.cursor_batch_id is None or batch_id > state.cursor_batch_id else state.cursor_batch_id
+    _advance_cursor(state, batch_id)
+
+
+def mark_missing_at_source(state: ProgressState, batch_id: str) -> None:
+    """GDELT hat 404 geliefert: Satz bleibt Lücke, wird aber nicht bei jedem Lauf erneut versucht."""
+    if batch_id in state.open_gaps:
+        state.open_gaps.remove(batch_id)
+    if batch_id not in state.missing_at_source:
+        state.missing_at_source.append(batch_id)
+        state.missing_at_source.sort()
+    _advance_cursor(state, batch_id)
 
 
 def processed_batch_ids(state: ProgressState) -> set[str]:
@@ -87,10 +111,22 @@ def processed_batch_ids(state: ProgressState) -> set[str]:
     return ids
 
 
-def batches_to_process(state: ProgressState, until_id: str) -> list[str]:
+def batches_to_process(
+    state: ProgressState,
+    until_id: str,
+    now: datetime | None = None,
+    retry_missing: bool = False,
+) -> list[str]:
+    """Offene Lücken, an der Quelle fehlende Sätze (nur jung oder auf Wunsch) und neue Sätze bis until_id."""
+    current = now or datetime.now(timezone.utc)
     pending: list[str] = []
     seen: set[str] = set()
-    for batch_id in state.open_gaps:
+    retry = [
+        batch_id
+        for batch_id in state.missing_at_source
+        if retry_missing or current - datetime_from_batch_id(batch_id) < MISSING_RETRY_WINDOW
+    ]
+    for batch_id in sorted([*state.open_gaps, *retry]):
         if batch_id <= until_id and batch_id not in seen:
             pending.append(batch_id)
             seen.add(batch_id)

@@ -7,6 +7,7 @@ from typing import Literal, Optional
 TitleSource = Literal["gkg", "fetched", "missing"]
 SentimentLabel = Literal["positive", "neutral", "negative"]
 Coverage = Literal["complete", "gap"]
+GapReason = Literal["source_missing"]
 
 
 @dataclass(frozen=True)
@@ -48,6 +49,7 @@ class DailyRow:
     count_without_sentiment: int
     sentiment_mean: Optional[float]
     coverage: Coverage
+    gap_reason: Optional[GapReason] = None
 
 
 @dataclass(frozen=True)
@@ -66,3 +68,5 @@ class ProgressState:
     open_gaps: list[str]
     failed_title_fetches: dict[str, str]
     successful_spans: list[list[str]] = field(default_factory=list)
+    # 15-Minuten-Sätze, die GDELT mit 404 beantwortet hat (dauerhaft an der Quelle fehlend).
+    missing_at_source: list[str] = field(default_factory=list)

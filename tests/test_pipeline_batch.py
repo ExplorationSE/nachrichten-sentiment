@@ -9,6 +9,7 @@ from nachrichten_sentiment.dedup import UrlIndex
 from nachrichten_sentiment.models import ProgressState
 from nachrichten_sentiment.paths import ProjectPaths
 from nachrichten_sentiment.pipeline import process_batch
+from nachrichten_sentiment.progress import processed_batch_ids
 from nachrichten_sentiment.store import load_articles
 
 
@@ -76,7 +77,10 @@ def test_process_batch_filters_scores_and_records_gaps(tmp_path: Path):
         fetcher=missing,
         extract_zip=lambda path: "",
     )
-    assert "20150218231500" in progress.open_gaps
+    # 404: dauerhaft an der Quelle fehlend, nicht als offene Luecke gefuehrt
+    assert "20150218231500" in progress.missing_at_source
+    assert "20150218231500" not in progress.open_gaps
+    assert "20150218231500" not in processed_batch_ids(progress)
     assert (paths.gaps_log_path).exists()
     assert "20150218231500" in paths.gaps_log_path.read_text(encoding="utf-8")
 
@@ -100,6 +104,7 @@ def test_process_batch_download_error_becomes_gap(tmp_path: Path):
     )
     assert result == []
     assert progress.open_gaps == ["20150218230000"]
+    assert progress.missing_at_source == []
     assert progress.successful_spans == []
     assert paths.progress_path.exists()
 

@@ -62,3 +62,18 @@ def test_empty_complete_day_is_zero_and_missing_batches_are_gaps():
     gap = aggregate_daily([], day, set())
     assert gap.coverage == "gap"
     assert gap.count_unique_url == 0
+
+
+def test_gap_reason_marks_days_with_source_missing_batches():
+    day = date(2015, 2, 19)
+    expected = expected_batch_ids_for_berlin_day(day)
+    processed = set(expected[1:])
+    missing_row = aggregate_daily([], day, processed, missing_at_source={expected[0]})
+    assert missing_row.coverage == "gap"
+    assert missing_row.gap_reason == "source_missing"
+    plain_gap = aggregate_daily([], day, processed, missing_at_source=set())
+    assert plain_gap.coverage == "gap"
+    assert plain_gap.gap_reason is None
+    complete = aggregate_daily([], day, set(expected), missing_at_source={"20990101000000"})
+    assert complete.coverage == "complete"
+    assert complete.gap_reason is None

@@ -16,6 +16,7 @@ from nachrichten_sentiment.progress import (
     batches_to_process,
     load_progress,
     mark_gap,
+    mark_missing_at_source,
     mark_success,
     processed_batch_ids,
     save_progress,
@@ -46,8 +47,18 @@ def _extract_zip(zip_path: Path) -> str:
         return archive.read(names[0]).decode("utf-8", errors="replace")
 
 
-def _record_gap(batch_id: str, message: str, *, paths: ProjectPaths, progress: ProgressState) -> list[Article]:
-    mark_gap(progress, batch_id)
+def _record_gap(
+    batch_id: str,
+    message: str,
+    *,
+    paths: ProjectPaths,
+    progress: ProgressState,
+    missing_at_source: bool = False,
+) -> list[Article]:
+    if missing_at_source:
+        mark_missing_at_source(progress, batch_id)
+    else:
+        mark_gap(progress, batch_id)
     append_gap_log(paths.gaps_log_path, f"{batch_id} {message}")
     save_progress(paths.progress_path, progress)
     return []
@@ -73,7 +84,9 @@ def process_batch(
             backoff_seconds=0.0 if fetcher else 2.0,
         )
         text = (extract_zip or _extract_zip)(zip_path)
-    except (MissingGkgError, DownloadError) as exc:
+    except MissingGkgError as exc:
+        return _record_gap(batch_id, f"Quelle fehlt (404): {exc}", paths=paths, progress=progress, missing_at_source=True)
+    except DownloadError as exc:
         return _record_gap(batch_id, str(exc), paths=paths, progress=progress)
     except zipfile.BadZipFile as exc:
         return _record_gap(batch_id, f"defekte ZIP-Datei: {exc}", paths=paths, progress=progress)
@@ -143,11 +156,12 @@ def rebuild_outputs(paths: ProjectPaths, company: CompanyConfig, progress: Progr
     """Baut Tageswerte und Schlagzeilen vollständig aus allen gespeicherten Artikeln neu auf."""
     articles = mark_near_duplicates(load_articles(paths, company.ticker))
     processed = processed_batch_ids(progress)
+    missing = set(progress.missing_at_source)
     end_day = berlin_day_from_batch_id(progress.cursor_batch_id) if progress.cursor_batch_id else FIRST_BERLIN_DAY
     rows: list[DailyRow] = []
     day = FIRST_BERLIN_DAY
     while day <= end_day:
-        rows.append(aggregate_daily(articles, day, processed))
+        rows.append(aggregate_daily(articles, day, processed, missing))
         day += timedelta(days=1)
     write_daily(paths, company.ticker, rows, company.display_name)
     write_headlines(paths, company.ticker, articles)
@@ -200,11 +214,12 @@ def run_initial(
     until_id: str | None = None,
     fetcher=None,
     extract_zip=None,
+    retry_missing: bool = False,
 ) -> None:
     progress = load_progress(paths.progress_path)
     target = until_id or _latest_published_batch_id()
     run_batches(
-        batches_to_process(progress, target),
+        batches_to_process(progress, target, retry_missing=retry_missing),
         company=company,
         paths=paths,
         model=model,
@@ -222,12 +237,13 @@ def run_daily(
     day: date | None = None,
     fetcher=None,
     extract_zip=None,
+    retry_missing: bool = False,
 ) -> None:
     target = day or previous_berlin_day()
     until_id = expected_batch_ids_for_berlin_day(target)[-1]
     progress = load_progress(paths.progress_path)
     run_batches(
-        batches_to_process(progress, until_id),
+        batches_to_process(progress, until_id, retry_missing=retry_missing),
         company=company,
         paths=paths,
         model=model,
