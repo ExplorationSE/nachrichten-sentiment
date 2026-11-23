@@ -19,8 +19,13 @@ def build_parser() -> argparse.ArgumentParser:
     tageslauf.add_argument("--day", default=None, help="Zieltag YYYY-MM-DD")
     probelauf = sub.add_parser("probelauf", help="einige Berlin-Tage zur Probe verarbeiten")
     probelauf.add_argument("--start", required=True, help="erster Tag YYYY-MM-DD")
-    probelauf.add_argument("--days", type=int, default=7)
+    probelauf.add_argument("--days", type=int, default=7, help="Anzahl Berlin-Tage ab --start (Standard 7)")
     probelauf.add_argument("--fixture-dir", default=None, help="lokale GKG-ZIPs statt Download")
+    probelauf.add_argument(
+        "--root",
+        default=None,
+        help="eigener Projekt-Root für den Probelauf (Standard: probe/ im Repo), getrennt vom Echtbetrieb",
+    )
     return parser
 
 
@@ -40,7 +45,8 @@ def _fixture_fetcher(fixture: Path):
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    paths = ProjectPaths(default_root())
+    root = default_root()
+    paths = ProjectPaths(root)
     company = load_company("NVDA")
     model = _model()
     if args.command == "erstlauf":
@@ -50,8 +56,10 @@ def main(argv: list[str] | None = None) -> int:
         run_daily(paths, company, model, http_title_opener, day=day)
     elif args.command == "probelauf":
         fetcher = _fixture_fetcher(Path(args.fixture_dir)) if args.fixture_dir else None
+        # Eigener Zustand, damit der Cursor des Probelaufs den Erstlauf nicht verschiebt.
+        trial_paths = ProjectPaths(Path(args.root) if args.root else root / "probe")
         run_trial(
-            paths,
+            trial_paths,
             company,
             model,
             http_title_opener,

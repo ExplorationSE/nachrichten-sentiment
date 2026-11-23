@@ -110,3 +110,36 @@ def test_run_batches_resumes_preloads_urls_and_rebuilds_headlines(tmp_path: Path
 
     now = datetime(2026, 11, 23, 21, 22, 5, tzinfo=timezone.utc)
     assert _latest_published_batch_id(now) == "20261123210000"
+
+
+def _write_fixture_zip(directory: Path, batch_id: str, text: str) -> None:
+    import zipfile
+
+    directory.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(directory / f"{batch_id}.gkg.csv.zip", "w") as archive:
+        archive.writestr(f"{batch_id}.gkg.csv", text)
+
+
+def test_probelauf_uses_separate_root_and_leaves_main_state_untouched(tmp_path: Path, monkeypatch):
+    from nachrichten_sentiment import cli
+
+    main_root = tmp_path / "repo"
+    monkeypatch.setattr(cli, "default_root", lambda: main_root)
+    monkeypatch.setattr(cli, "_model", lambda: _Model())
+    first = expected_batch_ids_for_berlin_day(date(2019, 9, 23))[0]
+    fixtures = tmp_path / "fixtures"
+    _write_fixture_zip(fixtures, first, _line(first, "p1"))
+
+    assert cli.main(["probelauf", "--start", "2019-09-23", "--days", "1", "--fixture-dir", str(fixtures)]) == 0
+
+    assert not (main_root / "data" / "state" / "progress.json").exists()
+    assert not (main_root / "site" / "data" / "nvda-daily.json").exists()
+    probe = main_root / "probe"
+    assert (probe / "data" / "state" / "progress.json").exists()
+    assert (probe / "site" / "data" / "nvda-daily.json").exists()
+    assert load_articles(ProjectPaths(probe), "NVDA")[0].gkg_record_id == "p1"
+
+    custom = tmp_path / "eigener-probe-root"
+    cli.main(["probelauf", "--start", "2019-09-23", "--days", "1", "--fixture-dir", str(fixtures), "--root", str(custom)])
+    assert (custom / "data" / "state" / "progress.json").exists()
+    assert not (main_root / "data" / "state" / "progress.json").exists()
