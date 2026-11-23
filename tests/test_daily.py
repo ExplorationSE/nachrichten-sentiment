@@ -77,3 +77,14 @@ def test_gap_reason_marks_days_with_source_missing_batches():
     complete = aggregate_daily([], day, set(expected), missing_at_source={"20990101000000"})
     assert complete.coverage == "complete"
     assert complete.gap_reason is None
+
+
+def test_gap_reason_only_when_all_unprocessed_batches_are_missing_at_source():
+    day = date(2015, 2, 19)
+    expected = expected_batch_ids_for_berlin_day(day)
+    processed = set(expected[2:])  # expected[0] fehlt an der Quelle, expected[1] ist offen
+    mixed = aggregate_daily([], day, processed, missing_at_source={expected[0]})
+    assert mixed.coverage == "gap"
+    assert mixed.gap_reason is None
+    both = aggregate_daily([], day, processed, missing_at_source={expected[0], expected[1]})
+    assert both.gap_reason == "source_missing"

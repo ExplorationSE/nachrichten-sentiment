@@ -21,7 +21,9 @@ def aggregate_daily(
     scores = [item.sentiment for item in of_day if item.sentiment is not None]
     expected = set(expected_batch_ids_for_berlin_day(day))
     coverage = "complete" if expected <= processed_batch_ids else "gap"
-    gap_reason = "source_missing" if coverage == "gap" and not expected.isdisjoint(missing_at_source) else None
+    # "Quelle fehlt" nur, wenn jeder nicht verarbeitete Satz des Tages bei GDELT dauerhaft fehlt.
+    unprocessed = expected - processed_batch_ids
+    gap_reason = "source_missing" if unprocessed and unprocessed <= missing_at_source else None
     return DailyRow(
         date=day_key,
         count_unique_url=len(of_day),
