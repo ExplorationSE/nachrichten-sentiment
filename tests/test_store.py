@@ -68,3 +68,14 @@ def test_load_articles_skips_broken_last_line_and_append_repairs_it(tmp_path: Pa
     second.gkg_record_id = "id-3"
     append_articles(paths, "NVDA", [second])
     assert [a.gkg_record_id for a in load_articles(paths, "NVDA")] == ["id-1", "id-3"]
+
+
+def test_site_json_is_compact(tmp_path: Path):
+    paths = ProjectPaths(tmp_path)
+    write_daily(paths, "NVDA", [DailyRow("2015-02-19", 1, 1, 1, 0, 0, 0, 0.5, "complete")], "Nvidia")
+    write_headlines(paths, "NVDA", [_article()])
+    for file in [tmp_path / "site" / "data" / "nvda-daily.json", tmp_path / "site" / "data" / "nvda" / "2015-02.json"]:
+        text = file.read_text(encoding="utf-8")
+        assert "\n" not in text
+        assert ", " not in text and ": " not in text.replace("NVIDIA raises", "")
+        json.loads(text)

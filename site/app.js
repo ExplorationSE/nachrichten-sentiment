@@ -33,10 +33,7 @@ function appendHeadline(container, item, withSentiment, className) {
     wrap.appendChild(document.createTextNode(title));
   }
   if (withSentiment) {
-    const value = item.sentiment === null || item.sentiment === undefined
-      ? "—"
-      : String(item.sentiment);
-    wrap.appendChild(document.createTextNode(" " + value));
+    wrap.appendChild(document.createTextNode(" " + formatSentiment(item.sentiment)));
   }
   container.appendChild(wrap);
 }
@@ -124,8 +121,7 @@ async function openDay(date, row) {
   });
   root.replaceChildren();
   const heading = document.createElement("h2");
-  const note = row && row.coverage === "gap" ? " (" + gapLabel(row) + ")" : "";
-  heading.textContent = "Schlagzeilen " + date + note;
+  heading.textContent = formatDayHeading(date, row);
   root.appendChild(heading);
   for (const group of grouped) {
     appendHeadline(root, group.stem, true);

@@ -42,6 +42,25 @@ function formatTooltip(row) {
   return text;
 }
 
+function formatSentiment(value) {
+  if (value === null || value === undefined) return "—";
+  return formatNumber(value);
+}
+
+function formatDayHeading(date, row) {
+  let text = "Schlagzeilen " + date;
+  if (!row) return text;
+  const label = gapLabel(row);
+  if (label) text += " (" + label + ")";
+  text +=
+    " — " +
+    row.count_unique_url +
+    " Nachrichten, " +
+    row.count_after_near_dup_collapse +
+    " ohne Nahduplikate";
+  return text;
+}
+
 function toBarSeries(days) {
   const up = [];
   const down = [];
@@ -107,5 +126,5 @@ function rangeStart(endDate, rangeKey) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { formatTooltip, gapLabel, toBarSeries, toLineSeries, rangeStart, safeHref };
+  module.exports = { formatTooltip, gapLabel, formatSentiment, formatDayHeading, toBarSeries, toLineSeries, rangeStart, safeHref };
 }

@@ -20,6 +20,10 @@ def article_from_dict(raw: dict) -> Article:
     return Article(**raw)
 
 
+def _compact_json(payload) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
 def daily_row_to_dict(row: DailyRow) -> dict:
     return asdict(row)
 
@@ -76,7 +80,7 @@ def write_daily(paths: ProjectPaths, ticker: str, rows: list[DailyRow], display_
         "days": [daily_row_to_dict(row) for row in rows],
     }
     target = paths.site_data_dir / f"{ticker.lower()}-daily.json"
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(target, _compact_json(payload))
 
 
 def write_headlines(
@@ -108,4 +112,4 @@ def write_headlines(
     root = paths.site_data_dir / ticker.lower()
     root.mkdir(parents=True, exist_ok=True)
     for month, days in grouped.items():
-        (root / f"{month}.json").write_text(json.dumps(days, ensure_ascii=False, indent=2), encoding="utf-8")
+        atomic_write_text(root / f"{month}.json", _compact_json(days))

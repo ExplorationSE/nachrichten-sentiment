@@ -6,6 +6,8 @@ const {
   toLineSeries,
   rangeStart,
   safeHref,
+  formatSentiment,
+  formatDayHeading,
 } = require("../site/chart_data.js");
 
 test("tooltip lists counts and German sentiment", () => {
@@ -138,4 +140,29 @@ test("gap tooltip names a missing GDELT source", () => {
 test("range chips clamp to last day of shorter months", () => {
   assert.equal(rangeStart("2026-03-31", "1M"), "2026-02-28");
   assert.equal(rangeStart("2024-03-31", "1M"), "2024-02-29");
+});
+
+test("headline sentiment uses German format with two decimals", () => {
+  assert.equal(formatSentiment(0.5), "+0,50");
+  assert.equal(formatSentiment(-0.123), "\u22120,12");
+  assert.equal(formatSentiment(0), "0,00");
+  assert.equal(formatSentiment(null), "—");
+  assert.equal(formatSentiment(undefined), "—");
+});
+
+test("day heading shows unique and collapsed counts and gap label", () => {
+  assert.equal(
+    formatDayHeading("2019-09-24", { count_unique_url: 12, count_after_near_dup_collapse: 10, coverage: "complete" }),
+    "Schlagzeilen 2019-09-24 — 12 Nachrichten, 10 ohne Nahduplikate"
+  );
+  assert.equal(
+    formatDayHeading("2019-09-23", {
+      count_unique_url: 1,
+      count_after_near_dup_collapse: 1,
+      coverage: "gap",
+      gap_reason: "source_missing",
+    }),
+    "Schlagzeilen 2019-09-23 (Quelle fehlt (GDELT)) — 1 Nachrichten, 1 ohne Nahduplikate"
+  );
+  assert.equal(formatDayHeading("2019-09-25", undefined), "Schlagzeilen 2019-09-25");
 });
