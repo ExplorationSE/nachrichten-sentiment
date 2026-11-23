@@ -1,0 +1,27 @@
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_index_contains_se_aktien_colors_and_title():
+    html = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+    assert "Nachrichten-Sentiment" in html
+    assert "Nvidia (NVDA)" in html
+    for value in [
+        "--bg:#0d1117",
+        "--card:#161b22",
+        "--line:#30363d",
+        "--txt:#e6edf3",
+        "--mut:#8b949e",
+        "--up:#26a69a",
+        "--down:#ef5350",
+        "--acc:#58a6ff",
+        "#1f2937",
+        "#6e7681",
+    ]:
+        assert value in html
+    assert "1 Monat" in html and "3 Monate" in html and "1 Jahr" in html
+    assert "5 Jahre" in html and "Maximum" in html
+    assert 'src="lwc.js"' in html
+    assert 'src="chart_data.js"' in html
+    assert 'src="app.js"' in html
