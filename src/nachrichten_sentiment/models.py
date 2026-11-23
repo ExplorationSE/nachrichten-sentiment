@@ -70,5 +70,7 @@ class ProgressState:
     successful_spans: list[list[str]] = field(default_factory=list)
     # 15-Minuten-Sätze, die GDELT mit 404 beantwortet hat (dauerhaft an der Quelle fehlend).
     missing_at_source: list[str] = field(default_factory=list)
+    # Berlin-Tage verarbeiteter Sätze, deren Ausgaben noch nicht neu aufgebaut wurden (übersteht Abbrüche).
+    pending_rebuild_days: list[str] = field(default_factory=list)
     # Schlüssel aus failed_title_fetches, die bereits in failed_titles.jsonl stehen (nur Laufzeit).
     persisted_failed_titles: set[str] = field(default_factory=set, repr=False, compare=False)

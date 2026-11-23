@@ -109,3 +109,44 @@ def test_mark_near_duplicates_compares_only_within_day_and_matches_reference():
         "d": (False, None),
         "e": (True, "a"),
     }
+
+
+NOV = expected_batch_ids_for_berlin_day(date(2019, 11, 5))[:1]
+
+
+def test_interrupted_run_keeps_pending_days_and_resume_equals_full_rebuild(tmp_path: Path):
+    import pytest
+
+    from nachrichten_sentiment.progress import load_progress
+
+    paths = ProjectPaths(tmp_path / "inc")
+    run_batches(SEP, **_kwargs(paths))
+
+    def extract_or_abort(path: Path) -> str:
+        import zipfile
+
+        if path.name.split(".")[0] == NOV[0]:
+            raise RuntimeError("abort")
+        with zipfile.ZipFile(path) as archive:
+            return archive.read(archive.namelist()[0]).decode("utf-8")
+
+    with pytest.raises(RuntimeError):
+        run_batches(OCT + NOV, extract_zip=extract_or_abort, **_kwargs(paths))
+    assert "2019-10-01" in load_progress(paths.progress_path).pending_rebuild_days
+
+    run_batches(OCT + NOV, **_kwargs(paths))
+    assert load_progress(paths.progress_path).pending_rebuild_days == []
+
+    full = ProjectPaths(tmp_path / "full")
+    run_batches(SEP + OCT + NOV, full_rebuild=True, **_kwargs(full))
+    snap = _snapshot(paths.root)
+    assert "site/data/nvda/2019-10.json" in snap
+    assert snap == _snapshot(full.root)
+
+
+def test_pending_rebuild_days_load_backward_compatible(tmp_path: Path):
+    from nachrichten_sentiment.progress import load_progress
+
+    path = tmp_path / "progress.json"
+    path.write_text(json.dumps({"cursor_batch_id": None}), encoding="utf-8")
+    assert load_progress(path).pending_rebuild_days == []

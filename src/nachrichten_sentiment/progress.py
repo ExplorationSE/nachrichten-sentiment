@@ -7,7 +7,13 @@ from pathlib import Path
 
 from nachrichten_sentiment.fileutil import atomic_write_text, repair_partial_last_line
 from nachrichten_sentiment.models import ProgressState
-from nachrichten_sentiment.timeutil import FIRST_BATCH_ID, datetime_from_batch_id, iter_batch_ids, next_batch_id
+from nachrichten_sentiment.timeutil import (
+    FIRST_BATCH_ID,
+    berlin_day_from_batch_id,
+    datetime_from_batch_id,
+    iter_batch_ids,
+    next_batch_id,
+)
 
 # Ein 404 auf einen jungen Satz kann an verspäteter Veröffentlichung liegen; ältere gelten als dauerhaft fehlend.
 MISSING_RETRY_WINDOW = timedelta(days=7)
@@ -47,6 +53,7 @@ def load_progress(path: Path) -> ProgressState:
         failed_title_fetches={**legacy, **from_file},
         successful_spans=[list(span) for span in raw.get("successful_spans", [])],
         missing_at_source=list(raw.get("missing_at_source", [])),
+        pending_rebuild_days=list(raw.get("pending_rebuild_days", [])),
         persisted_failed_titles=set(from_file),
     )
 
@@ -74,6 +81,7 @@ def save_progress(path: Path, state: ProgressState) -> None:
                 "open_gaps": state.open_gaps,
                 "successful_spans": state.successful_spans,
                 "missing_at_source": state.missing_at_source,
+                "pending_rebuild_days": state.pending_rebuild_days,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -109,6 +117,13 @@ def _merge_successful_span(spans: list[list[str]], batch_id: str) -> list[list[s
 def _advance_cursor(state: ProgressState, batch_id: str) -> None:
     if state.cursor_batch_id is None or batch_id > state.cursor_batch_id:
         state.cursor_batch_id = batch_id
+
+
+def mark_pending_rebuild(state: ProgressState, batch_id: str) -> None:
+    day = berlin_day_from_batch_id(batch_id).isoformat()
+    if day not in state.pending_rebuild_days:
+        state.pending_rebuild_days.append(day)
+        state.pending_rebuild_days.sort()
 
 
 def mark_success(state: ProgressState, batch_id: str) -> None:

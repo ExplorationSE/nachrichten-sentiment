@@ -17,6 +17,7 @@ from nachrichten_sentiment.progress import (
     load_progress,
     mark_gap,
     mark_missing_at_source,
+    mark_pending_rebuild,
     mark_success,
     processed_batch_ids,
     save_progress,
@@ -65,6 +66,7 @@ def _record_gap(
         mark_missing_at_source(progress, batch_id)
     else:
         mark_gap(progress, batch_id)
+    mark_pending_rebuild(progress, batch_id)
     append_gap_log(paths.gaps_log_path, f"{batch_id} {message}")
     save_progress(paths.progress_path, progress)
     return []
@@ -154,6 +156,7 @@ def process_batch(
     if articles:
         append_articles(paths, company.ticker, articles)
     mark_success(progress, batch_id)
+    mark_pending_rebuild(progress, batch_id)
     save_progress(paths.progress_path, progress)
     return articles
 
@@ -212,12 +215,11 @@ def run_batches(
     url_index = UrlIndex()
     url_index.load_from_articles(load_articles(paths, company.ticker))
     already = processed_batch_ids(progress)
-    affected_days: set[str] = set()
     for batch_id in batch_ids:
         if batch_id in already:
             continue
-        # Auch Lücken-Sätze zählen: der Tag wird neu bewertet.
-        affected_days.add(berlin_day_from_batch_id(batch_id).isoformat())
+        # process_batch trägt den Berlin-Tag vor dem Speichern in pending_rebuild_days ein
+        # (Erfolg wie Lücke), damit ein Abbruch keine betroffenen Tage verliert.
         process_batch(
             batch_id,
             company=company,
@@ -232,7 +234,10 @@ def run_batches(
     daily_file = paths.site_data_dir / f"{company.ticker.lower()}-daily.json"
     # Ohne vorhandene Tagesdatei gibt es keinen gespeicherten Stand, auf dem inkrementell aufgebaut werden kann.
     full = full_rebuild or not daily_file.exists()
-    rebuild_outputs(paths, company, progress, None if full else affected_days)
+    rebuild_outputs(paths, company, progress, None if full else set(progress.pending_rebuild_days))
+    # Erst nach erfolgreichem Schreiben von Tages- und Schlagzeilendateien leeren.
+    progress.pending_rebuild_days = []
+    save_progress(paths.progress_path, progress)
 
 
 def _latest_published_batch_id(now: datetime | None = None) -> str:
