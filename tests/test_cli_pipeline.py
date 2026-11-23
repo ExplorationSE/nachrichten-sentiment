@@ -161,3 +161,7 @@ def test_cli_luecken_erneut_is_passed_to_initial_and_daily(tmp_path: Path, monke
     cli.main(["tageslauf"])
     assert seen["initial"]["retry_missing"] is True
     assert seen["daily"]["retry_missing"] is False
+    assert seen["initial"]["full_rebuild"] is False
+    seen.clear()
+    cli.main(["tageslauf", "--voll-neuaufbau"])
+    assert seen["daily"]["full_rebuild"] is True

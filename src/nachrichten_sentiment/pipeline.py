@@ -5,7 +5,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from nachrichten_sentiment.daily import aggregate_daily
-from nachrichten_sentiment.dedup import UrlIndex, mark_near_duplicates
+from nachrichten_sentiment.dedup import UrlIndex, group_by_day, mark_near_duplicates
 from nachrichten_sentiment.download import DownloadError, MissingGkgError, download_gkg_zip
 from nachrichten_sentiment.filter_company import matches_company
 from nachrichten_sentiment.gkg import parse_gkg_line
@@ -22,7 +22,13 @@ from nachrichten_sentiment.progress import (
     save_progress,
 )
 from nachrichten_sentiment.sentiment import SentimentModel, score_title
-from nachrichten_sentiment.store import append_articles, load_articles, write_daily, write_headlines
+from nachrichten_sentiment.store import (
+    append_articles,
+    load_articles,
+    rewrite_month_articles,
+    write_daily,
+    write_headlines,
+)
 from nachrichten_sentiment.timeutil import (
     FIRST_BERLIN_DAY,
     batch_id_from_datetime,
@@ -152,19 +158,42 @@ def process_batch(
     return articles
 
 
-def rebuild_outputs(paths: ProjectPaths, company: CompanyConfig, progress: ProgressState) -> list[DailyRow]:
-    """Baut Tageswerte und Schlagzeilen vollständig aus allen gespeicherten Artikeln neu auf."""
-    articles = mark_near_duplicates(load_articles(paths, company.ticker))
+def rebuild_outputs(
+    paths: ProjectPaths,
+    company: CompanyConfig,
+    progress: ProgressState,
+    affected_days: set[str] | None = None,
+) -> list[DailyRow]:
+    """Baut Tageswerte neu auf; Nahduplikate, Monats-JSONL und Schlagzeilen nur für betroffene Tage/Monate.
+
+    ``affected_days=None`` bedeutet vollständiger Neuaufbau aller Tage.
+    """
+    articles = load_articles(paths, company.ticker)
+    by_day = group_by_day(articles)
+    if affected_days is None:
+        days_to_mark: set[str] = set(by_day)
+    else:
+        days_to_mark = set(affected_days)
+    mark_near_duplicates(articles, days=days_to_mark)
+    months = {day[:7] for day in days_to_mark}
+    by_month: dict[str, list[Article]] = {}
+    for article in articles:
+        month = article.day_berlin[:7]
+        if month in months:
+            by_month.setdefault(month, []).append(article)
+    for month, month_articles in by_month.items():
+        rewrite_month_articles(paths, company.ticker, month, month_articles)
+
     processed = processed_batch_ids(progress)
     missing = set(progress.missing_at_source)
     end_day = berlin_day_from_batch_id(progress.cursor_batch_id) if progress.cursor_batch_id else FIRST_BERLIN_DAY
     rows: list[DailyRow] = []
     day = FIRST_BERLIN_DAY
     while day <= end_day:
-        rows.append(aggregate_daily(articles, day, processed, missing))
+        rows.append(aggregate_daily(by_day.get(day.isoformat(), []), day, processed, missing))
         day += timedelta(days=1)
     write_daily(paths, company.ticker, rows, company.display_name)
-    write_headlines(paths, company.ticker, articles)
+    write_headlines(paths, company.ticker, [a for items in by_month.values() for a in items], months=by_month.keys())
     return rows
 
 
@@ -177,14 +206,18 @@ def run_batches(
     title_opener,
     fetcher=None,
     extract_zip=None,
+    full_rebuild: bool = False,
 ) -> None:
     progress = load_progress(paths.progress_path)
     url_index = UrlIndex()
     url_index.load_from_articles(load_articles(paths, company.ticker))
     already = processed_batch_ids(progress)
+    affected_days: set[str] = set()
     for batch_id in batch_ids:
         if batch_id in already:
             continue
+        # Auch Lücken-Sätze zählen: der Tag wird neu bewertet.
+        affected_days.add(berlin_day_from_batch_id(batch_id).isoformat())
         process_batch(
             batch_id,
             company=company,
@@ -196,7 +229,10 @@ def run_batches(
             fetcher=fetcher,
             extract_zip=extract_zip,
         )
-    rebuild_outputs(paths, company, progress)
+    daily_file = paths.site_data_dir / f"{company.ticker.lower()}-daily.json"
+    # Ohne vorhandene Tagesdatei gibt es keinen gespeicherten Stand, auf dem inkrementell aufgebaut werden kann.
+    full = full_rebuild or not daily_file.exists()
+    rebuild_outputs(paths, company, progress, None if full else affected_days)
 
 
 def _latest_published_batch_id(now: datetime | None = None) -> str:
@@ -215,6 +251,7 @@ def run_initial(
     fetcher=None,
     extract_zip=None,
     retry_missing: bool = False,
+    full_rebuild: bool = False,
 ) -> None:
     progress = load_progress(paths.progress_path)
     target = until_id or _latest_published_batch_id()
@@ -226,6 +263,7 @@ def run_initial(
         title_opener=title_opener,
         fetcher=fetcher,
         extract_zip=extract_zip,
+        full_rebuild=full_rebuild,
     )
 
 
@@ -238,6 +276,7 @@ def run_daily(
     fetcher=None,
     extract_zip=None,
     retry_missing: bool = False,
+    full_rebuild: bool = False,
 ) -> None:
     target = day or previous_berlin_day()
     until_id = expected_batch_ids_for_berlin_day(target)[-1]
@@ -250,6 +289,7 @@ def run_daily(
         title_opener=title_opener,
         fetcher=fetcher,
         extract_zip=extract_zip,
+        full_rebuild=full_rebuild,
     )
 
 

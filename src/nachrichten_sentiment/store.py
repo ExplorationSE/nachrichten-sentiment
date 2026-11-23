@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Iterable
 from dataclasses import asdict
+from pathlib import Path
 
 from nachrichten_sentiment.models import Article, DailyRow
 from nachrichten_sentiment.paths import ProjectPaths
@@ -17,6 +20,27 @@ def article_from_dict(raw: dict) -> Article:
 
 def daily_row_to_dict(row: DailyRow) -> dict:
     return asdict(row)
+
+
+def _atomic_write_text(target: Path, text: str) -> None:
+    """Schreibt erst in eine temporäre Datei und ersetzt dann atomar; ein Abbruch lässt die alte Datei gültig."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, target)
+
+
+def rewrite_month_articles(paths: ProjectPaths, ticker: str, month: str, articles: list[Article]) -> None:
+    """Schreibt die Monats-JSONL mit allen Artikeln des Monats (inklusive Nahduplikat-Flags) atomar neu."""
+    target = paths.articles_dir(ticker) / f"{month}.jsonl"
+    ordered = sorted(articles, key=lambda item: (item.batch_utc, item.gkg_record_id))
+    _atomic_write_text(
+        target,
+        "".join(json.dumps(article_to_dict(article), ensure_ascii=False) + "\n" for article in ordered),
+    )
 
 
 def append_articles(paths: ProjectPaths, ticker: str, articles: list[Article]) -> None:
@@ -57,10 +81,19 @@ def write_daily(paths: ProjectPaths, ticker: str, rows: list[DailyRow], display_
     target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
-def write_headlines(paths: ProjectPaths, ticker: str, articles: list[Article]) -> None:
+def write_headlines(
+    paths: ProjectPaths,
+    ticker: str,
+    articles: list[Article],
+    months: Iterable[str] | None = None,
+) -> None:
+    """Schreibt Schlagzeilen-JSON je Monat; mit ``months`` nur diese Monate, jeweils aus allen übergebenen Artikeln."""
+    wanted = None if months is None else set(months)
     grouped: dict[str, dict[str, list[dict]]] = {}
     for article in articles:
         month = article.day_berlin[:7]
+        if wanted is not None and month not in wanted:
+            continue
         day_map = grouped.setdefault(month, {})
         day_map.setdefault(article.day_berlin, []).append(
             {
