@@ -1,0 +1,60 @@
+name: Tageslauf und GitHub Pages
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: daily-pages
+  cancel-in-progress: false
+
+jobs:
+  collect-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Abhängigkeiten
+        run: python -m pip install -e ".[ml]"
+      - name: Stunde in Europe/Berlin prüfen
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          python - << 'PY'
+          import os, sys
+          from datetime import datetime, timezone
+          from nachrichten_sentiment.schedule import should_run_scheduled
+          event = os.environ["EVENT_NAME"]
+          if not should_run_scheduled(datetime.now(timezone.utc), event):
+              print("skip: not 06:00 Europe/Berlin")
+              sys.exit(0)
+          open("run.flag", "w").write("yes")
+          PY
+      - name: Tageslauf
+        if: hashFiles('run.flag') != '' || github.event_name == 'workflow_dispatch'
+        env:
+          HF_HOME: ${{ github.workspace }}/.hf-cache
+        run: python -m nachrichten_sentiment tageslauf
+      - name: Stand committen
+        if: success() && (hashFiles('run.flag') != '' || github.event_name == 'workflow_dispatch')
+        run: |
+          git config user.name "ExplorationSE"
+          git config user.email "ExplorationSE@users.noreply.github.com"
+          git add data site
+          git diff --cached --quiet || git commit -m "data: Tageslauf $(date -u +%Y-%m-%dT%H:%MZ)"
+          git push
+      - uses: actions/upload-pages-artifact@v3
+        if: success() && (hashFiles('run.flag') != '' || github.event_name == 'workflow_dispatch')
+        with:
+          path: site/
+      - uses: actions/deploy-pages@v4
+        if: success() && (hashFiles('run.flag') != '' || github.event_name == 'workflow_dispatch')
