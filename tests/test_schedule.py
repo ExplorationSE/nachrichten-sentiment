@@ -56,3 +56,17 @@ def test_workflow_checks_hour_before_ml_install_and_deploys_via_environment():
     assert deploy["environment"]["url"] == "${{ steps.deployment.outputs.page_url }}"
     deploy_step = next(s for s in deploy["steps"] if str(s.get("uses", "")).startswith("actions/deploy-pages@"))
     assert deploy_step["id"] == "deployment"
+
+
+def test_workflow_checks_out_ref_and_scopes_permissions_per_job():
+    import pytest
+
+    yaml = pytest.importorskip("yaml")
+    flow = yaml.safe_load((ROOT / ".github" / "workflows" / "daily.yml").read_text(encoding="utf-8"))
+    assert "permissions" not in flow
+    collect = flow["jobs"]["collect"]
+    deploy = flow["jobs"]["deploy"]
+    assert collect["permissions"] == {"contents": "write"}
+    assert deploy["permissions"] == {"pages": "write", "id-token": "write"}
+    checkout = next(s for s in collect["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+    assert checkout["with"]["ref"] == "${{ github.ref_name }}"
