@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import time
 import unicodedata
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from difflib import SequenceMatcher
@@ -52,12 +53,20 @@ class _TitleParser(HTMLParser):
             self.title_chunks.append(data)
 
 
+MAX_TITLE_CHARS = 300
+MAX_HTML_BYTES = 512_000
+
+
+def _clip(title: str) -> str:
+    return title.strip()[:MAX_TITLE_CHARS].rstrip()
+
+
 def parse_html_title(html: str) -> str | None:
     parser = _TitleParser()
     parser.feed(html)
     if parser.og_title and parser.og_title.strip():
-        return parser.og_title.strip()
-    title = "".join(parser.title_chunks).strip()
+        return _clip(parser.og_title)
+    title = _clip("".join(parser.title_chunks))
     return title or None
 
 
@@ -92,9 +101,21 @@ def fetch_title(
         return FetchResult(title=None, source="missing", error=str(exc))
 
 
+def _decode(body: bytes, charset: str | None) -> str:
+    try:
+        return body.decode(charset or "utf-8", errors="replace")
+    except LookupError:  # unbekannter Zeichensatz im Content-Type
+        return body.decode("utf-8", errors="replace")
+
+
 def http_title_opener(url: str, timeout_seconds: float, pause_seconds: float = 0.3) -> str:
+    scheme = urllib.parse.urlsplit(url.strip()).scheme.lower()
+    if scheme not in ("http", "https"):
+        # fetch_title fängt den Fehler ab und cacht die URL als fehlend.
+        raise ValueError(f"unsupported URL scheme: {scheme or '(none)'}")
     if pause_seconds:
         time.sleep(pause_seconds)
     request = urllib.request.Request(url, headers={"User-Agent": "NachrichtenSentiment/0.1"})
     with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        return response.read().decode("utf-8", errors="replace")
+        body = response.read(MAX_HTML_BYTES)
+        return _decode(body, response.headers.get_content_charset())

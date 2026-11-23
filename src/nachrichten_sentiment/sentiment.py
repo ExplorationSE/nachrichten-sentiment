@@ -42,7 +42,7 @@ class FinBertModel:
         )
 
     def predict_proba(self, title: str) -> tuple[float, float, float]:
-        rows = self._pipe(title, top_k=None)
+        rows = self._pipe(title, top_k=None, truncation=True, max_length=512)
         items = rows[0] if rows and isinstance(rows[0], list) else rows
         mapped = {str(item["label"]).lower(): float(item["score"]) for item in items}
         return (
