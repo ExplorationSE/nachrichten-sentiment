@@ -6,8 +6,14 @@ function formatNumber(value) {
   return sign + abs.toFixed(2).replace(".", ",");
 }
 
+function gapLabel(row) {
+  if (row.coverage !== "gap") return "";
+  return row.gap_reason === "source_missing" ? "Quelle fehlt (GDELT)" : "unvollständig";
+}
+
 function formatTooltip(row) {
-  const gapPrefix = row.coverage === "gap" ? "unvollständig — " : "";
+  const label = gapLabel(row);
+  const gapPrefix = label ? label + " — " : "";
   let text =
     gapPrefix +
     row.count_unique_url +
@@ -40,9 +46,14 @@ function toBarSeries(days) {
   const up = [];
   const down = [];
   for (const day of days) {
-    const gap = day.coverage === "gap";
-    up.push({ time: day.date, value: gap ? null : day.count_positive });
-    down.push({ time: day.date, value: gap ? null : -day.count_negative });
+    if (day.coverage === "gap") {
+      // Ohne value erkennt Lightweight Charts den Tag als Lücke (Whitespace), nicht als 0.
+      up.push({ time: day.date });
+      down.push({ time: day.date });
+      continue;
+    }
+    up.push({ time: day.date, value: day.count_positive });
+    down.push({ time: day.date, value: -day.count_negative });
   }
   return { up, down };
 }
@@ -96,5 +107,5 @@ function rangeStart(endDate, rangeKey) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { formatTooltip, toBarSeries, toLineSeries, rangeStart, safeHref };
+  module.exports = { formatTooltip, gapLabel, toBarSeries, toLineSeries, rangeStart, safeHref };
 }

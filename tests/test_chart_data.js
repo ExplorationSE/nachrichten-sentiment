@@ -67,7 +67,7 @@ test("gap tooltip is marked incomplete and not a complete zero day", () => {
   assert.match(partialGap, /2 Nachrichten/);
 });
 
-test("bars go up green and down red, gaps are null not zero", () => {
+test("bars go up green and down red, gaps have no value (whitespace) not zero", () => {
   const days = [
     {
       date: "2019-09-23",
@@ -87,8 +87,10 @@ test("bars go up green and down red, gaps are null not zero", () => {
   const bars = toBarSeries(days);
   assert.equal(bars.up[0].value, 2);
   assert.equal(bars.down[0].value, -3);
-  assert.equal(bars.up[1].value, null);
-  assert.equal(bars.down[1].value, null);
+  // Lightweight Charts erkennt Lücken nur an fehlendem value (Whitespace-Datenpunkt).
+  assert.ok(!("value" in bars.up[1]));
+  assert.ok(!("value" in bars.down[1]));
+  assert.deepEqual(bars.up[1], { time: "2019-09-24" });
   const line = toLineSeries(days);
   assert.equal(line[0].value, -0.1);
   assert.equal(line[0].color, "#ef5350");
@@ -109,6 +111,28 @@ test("safeHref allows only http and https URLs", () => {
   assert.equal(safeHref("javascript:alert(1)"), null);
   assert.equal(safeHref("data:text/html,hi"), null);
   assert.equal(safeHref(""), null);
+  assert.equal(safeHref("HTTPS://Example.com/A"), "HTTPS://Example.com/A");
+  assert.equal(safeHref("  https://example.com/a  "), "https://example.com/a");
+  assert.equal(safeHref("  javascript:alert(1)"), null);
+  assert.equal(safeHref("JavaScript:alert(1)"), null);
+  assert.equal(safeHref("\tdata:text/html,hi"), null);
+  assert.equal(safeHref(null), null);
+});
+
+test("gap tooltip names a missing GDELT source", () => {
+  const text = formatTooltip({
+    count_unique_url: 0,
+    count_positive: 0,
+    count_neutral: 0,
+    count_negative: 0,
+    count_without_sentiment: 0,
+    count_after_near_dup_collapse: 0,
+    sentiment_mean: null,
+    coverage: "gap",
+    gap_reason: "source_missing",
+  });
+  assert.match(text, /^Quelle fehlt \(GDELT\) — /);
+  assert.doesNotMatch(text, /^unvollständig/);
 });
 
 test("range chips clamp to last day of shorter months", () => {

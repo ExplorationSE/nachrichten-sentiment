@@ -124,7 +124,7 @@ async function openDay(date, row) {
   });
   root.replaceChildren();
   const heading = document.createElement("h2");
-  const note = row && row.coverage === "gap" ? " (unvollständig)" : "";
+  const note = row && row.coverage === "gap" ? " (" + gapLabel(row) + ")" : "";
   heading.textContent = "Schlagzeilen " + date + note;
   root.appendChild(heading);
   for (const group of grouped) {
