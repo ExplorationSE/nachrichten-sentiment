@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+import zipfile
+from pathlib import Path
+
+from nachrichten_sentiment.dedup import UrlIndex
+from nachrichten_sentiment.download import DownloadError, MissingGkgError, download_gkg_zip
+from nachrichten_sentiment.filter_company import matches_company
+from nachrichten_sentiment.gkg import parse_gkg_line
+from nachrichten_sentiment.models import Article, CompanyConfig, ProgressState
+from nachrichten_sentiment.paths import ProjectPaths
+from nachrichten_sentiment.progress import append_gap_log, mark_gap, mark_success, save_progress
+from nachrichten_sentiment.sentiment import SentimentModel, score_title
+from nachrichten_sentiment.store import append_articles
+from nachrichten_sentiment.timeutil import berlin_day_from_batch_id, datetime_from_batch_id
+from nachrichten_sentiment.titles import fetch_title
+from nachrichten_sentiment.urls import normalize_url
+
+
+def _extract_zip(zip_path: Path) -> str:
+    with zipfile.ZipFile(zip_path) as archive:
+        name = archive.namelist()[0]
+        return archive.read(name).decode("utf-8", errors="replace")
+
+
+def process_batch(
+    batch_id: str,
+    *,
+    company: CompanyConfig,
+    paths: ProjectPaths,
+    url_index: UrlIndex,
+    model: SentimentModel | None,
+    title_opener,
+    progress: ProgressState,
+    fetcher=None,
+    extract_zip=None,
+) -> list[Article]:
+    try:
+        zip_path = download_gkg_zip(
+            batch_id,
+            paths.tmp_dir,
+            fetcher=fetcher,
+            backoff_seconds=0.0 if fetcher else 2.0,
+        )
+        text = (extract_zip or _extract_zip)(zip_path)
+    except (MissingGkgError, DownloadError) as exc:
+        mark_gap(progress, batch_id)
+        append_gap_log(paths.gaps_log_path, f"{batch_id} {exc}")
+        save_progress(paths.progress_path, progress)
+        return []
+    finally:
+        leftover = paths.tmp_dir / f"{batch_id}.gkg.csv.zip"
+        if leftover.exists():
+            leftover.unlink()
+
+    articles: list[Article] = []
+    batch_utc = datetime_from_batch_id(batch_id).strftime("%Y-%m-%dT%H:%M:%SZ")
+    day = berlin_day_from_batch_id(batch_id).isoformat()
+    # splitlines() behandelt auch CRLF-Zeilenenden.
+    for line in text.splitlines():
+        record = parse_gkg_line(line, batch_id)
+        if record is None:
+            continue
+        if not matches_company(
+            company,
+            record.organizations,
+            record.enhanced_organizations,
+            record.url,
+            record.page_title,
+        ):
+            continue
+        if not url_index.keep(record.url, record.gkg_record_id):
+            continue
+        if record.page_title:
+            title, title_source = record.page_title, "gkg"
+        else:
+            fetched = fetch_title(record.url, title_opener, progress.failed_title_fetches)
+            title, title_source = (fetched.title or ""), fetched.source
+        sentiment = label = p_pos = p_neu = p_neg = None
+        if title and model is not None and title_source != "missing":
+            scored = score_title(title, model)
+            sentiment, label = scored.sentiment, scored.label
+            p_pos, p_neu, p_neg = scored.p_positive, scored.p_neutral, scored.p_negative
+        articles.append(
+            Article(
+                gkg_record_id=record.gkg_record_id,
+                url=record.url,
+                url_normalized=normalize_url(record.url),
+                source_domain=record.source_domain,
+                title=title,
+                title_source=title_source,
+                batch_id=batch_id,
+                batch_utc=batch_utc,
+                day_berlin=day,
+                sentiment=sentiment,
+                sentiment_label=label,
+                p_positive=p_pos,
+                p_neutral=p_neu,
+                p_negative=p_neg,
+                is_near_duplicate=False,
+                near_duplicate_of=None,
+            )
+        )
+    if articles:
+        append_articles(paths, company.ticker, articles)
+    mark_success(progress, batch_id)
+    save_progress(paths.progress_path, progress)
+    return articles
