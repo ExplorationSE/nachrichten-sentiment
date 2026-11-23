@@ -66,9 +66,11 @@ function pad(value) {
 
 function shiftDate(iso, months, years) {
   const [year, month, day] = iso.split("-").map(Number);
-  const date = new Date(Date.UTC(year, month - 1, day));
-  date.setUTCFullYear(date.getUTCFullYear() + years);
-  date.setUTCMonth(date.getUTCMonth() + months);
+  const date = new Date(Date.UTC(year + years, month - 1 + months, 1));
+  const lastDay = new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)
+  ).getUTCDate();
+  date.setUTCDate(Math.min(day, lastDay));
   return (
     date.getUTCFullYear() +
     "-" +
@@ -76,6 +78,13 @@ function shiftDate(iso, months, years) {
     "-" +
     pad(date.getUTCDate())
   );
+}
+
+function safeHref(url) {
+  if (typeof url !== "string") return null;
+  const trimmed = url.trim();
+  if (/^https?:/i.test(trimmed)) return trimmed;
+  return null;
 }
 
 function rangeStart(endDate, rangeKey) {
@@ -87,5 +96,5 @@ function rangeStart(endDate, rangeKey) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { formatTooltip, toBarSeries, toLineSeries, rangeStart };
+  module.exports = { formatTooltip, toBarSeries, toLineSeries, rangeStart, safeHref };
 }

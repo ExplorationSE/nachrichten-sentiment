@@ -2,7 +2,12 @@
 
 async function loadDaily() {
   const response = await fetch("data/nvda-daily.json");
+  if (!response.ok) throw new Error("load failed");
   return response.json();
+}
+
+function showLoadError(target) {
+  if (target) target.textContent = "Daten konnten nicht geladen werden.";
 }
 
 function lastCompleteDate(days) {
@@ -10,6 +15,30 @@ function lastCompleteDate(days) {
     if (days[i].coverage === "complete") return days[i].date;
   }
   return days.length ? days[days.length - 1].date : null;
+}
+
+function appendHeadline(container, item, withSentiment, className) {
+  const wrap = document.createElement("div");
+  if (className) wrap.setAttribute("class", className);
+  const title = item.title || "Titel nicht verfügbar";
+  const href = safeHref(item.url);
+  if (href) {
+    const link = document.createElement("a");
+    link.setAttribute("href", href);
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noopener noreferrer");
+    link.textContent = title;
+    wrap.appendChild(link);
+  } else {
+    wrap.appendChild(document.createTextNode(title));
+  }
+  if (withSentiment) {
+    const value = item.sentiment === null || item.sentiment === undefined
+      ? "—"
+      : String(item.sentiment);
+    wrap.appendChild(document.createTextNode(" " + value));
+  }
+  container.appendChild(wrap);
 }
 
 function attachCharts(days) {
@@ -77,7 +106,15 @@ function attachCharts(days) {
 async function openDay(date, row) {
   const root = document.getElementById("headlines");
   const month = date.slice(0, 7);
-  const payload = await fetch("data/nvda/" + month + ".json").then((r) => r.json());
+  let payload;
+  try {
+    const response = await fetch("data/nvda/" + month + ".json");
+    if (!response.ok) throw new Error("load failed");
+    payload = await response.json();
+  } catch {
+    showLoadError(root);
+    return;
+  }
   const items = payload[date] || [];
   const stems = items.filter((item) => !item.is_near_duplicate);
   const dups = items.filter((item) => item.is_near_duplicate);
@@ -85,19 +122,19 @@ async function openDay(date, row) {
     const children = dups.filter((item) => item.near_duplicate_of === stem.gkg_record_id);
     return { stem, children };
   });
+  root.replaceChildren();
+  const heading = document.createElement("h2");
   const note = row && row.coverage === "gap" ? " (unvollständig)" : "";
-  root.innerHTML = "<h2>Schlagzeilen " + date + note + "</h2>" + grouped.map((group) => {
-    const title = group.stem.title || "Titel nicht verfügbar";
-    const value = group.stem.sentiment === null || group.stem.sentiment === undefined
-      ? "—"
-      : String(group.stem.sentiment);
-    const main = '<div><a href="' + group.stem.url + '" target="_blank" rel="noopener">' + title + "</a> " + value + "</div>";
-    const extra = group.children.map((child) => {
-      const ct = child.title || "Titel nicht verfügbar";
-      return '<div class="dup"><a href="' + child.url + '" target="_blank" rel="noopener">' + ct + "</a></div>";
-    }).join("");
-    return main + extra;
-  }).join("");
+  heading.textContent = "Schlagzeilen " + date + note;
+  root.appendChild(heading);
+  for (const group of grouped) {
+    appendHeadline(root, group.stem, true);
+    for (const child of group.children) {
+      appendHeadline(root, child, false, "dup");
+    }
+  }
 }
 
-loadDaily().then((payload) => attachCharts(payload.days || []));
+loadDaily()
+  .then((payload) => attachCharts(payload.days || []))
+  .catch(() => showLoadError(document.getElementById("tooltip")));

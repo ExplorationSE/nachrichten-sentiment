@@ -5,6 +5,7 @@ const {
   toBarSeries,
   toLineSeries,
   rangeStart,
+  safeHref,
 } = require("../site/chart_data.js");
 
 test("tooltip lists counts and German sentiment", () => {
@@ -100,4 +101,17 @@ test("range chips use Berlin calendar days", () => {
   assert.equal(rangeStart("2026-11-22", "1J"), "2025-11-22");
   assert.equal(rangeStart("2026-11-22", "5J"), "2021-11-22");
   assert.equal(rangeStart("2026-11-22", "max"), null);
+});
+
+test("safeHref allows only http and https URLs", () => {
+  assert.equal(safeHref("http://example.com/a"), "http://example.com/a");
+  assert.equal(safeHref("https://example.com/a"), "https://example.com/a");
+  assert.equal(safeHref("javascript:alert(1)"), null);
+  assert.equal(safeHref("data:text/html,hi"), null);
+  assert.equal(safeHref(""), null);
+});
+
+test("range chips clamp to last day of shorter months", () => {
+  assert.equal(rangeStart("2026-03-31", "1M"), "2026-02-28");
+  assert.equal(rangeStart("2024-03-31", "1M"), "2024-02-29");
 });

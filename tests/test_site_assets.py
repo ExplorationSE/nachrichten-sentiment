@@ -25,3 +25,13 @@ def test_index_contains_se_aktien_colors_and_title():
     assert 'src="lwc.js"' in html
     assert 'src="chart_data.js"' in html
     assert 'src="app.js"' in html
+
+
+def test_app_builds_headlines_safely_and_handles_load_errors():
+    js = (ROOT / "site" / "app.js").read_text(encoding="utf-8")
+    assert "innerHTML" not in js
+    assert "createElement" in js
+    assert "textContent" in js
+    assert "safeHref" in js
+    assert "noopener noreferrer" in js
+    assert "Daten konnten nicht geladen werden." in js
