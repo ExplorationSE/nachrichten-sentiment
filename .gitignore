@@ -7,3 +7,4 @@ dist/
 data/tmp/
 .hf-cache/
 /probe/
+tests/tmp-fixtures/
