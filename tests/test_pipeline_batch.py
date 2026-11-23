@@ -136,3 +136,38 @@ def test_process_batch_reads_real_zip_with_crlf_and_fetches_missing_title(tmp_pa
     assert all("\r" not in a.url for a in articles)
     assert articles[0].day_berlin == "2015-02-19"
     assert not (paths.tmp_dir / "20150218230000.gkg.csv.zip").exists()
+
+
+@pytest.mark.parametrize(
+    "payload, expected",
+    [
+        (b"kein zip", "defekte ZIP-Datei"),
+        ("empty", "leere ZIP-Datei"),
+    ],
+)
+def test_process_batch_bad_or_empty_zip_becomes_gap(tmp_path: Path, payload, expected):
+    paths = ProjectPaths(tmp_path)
+    company = load_company("NVDA")
+    progress = ProgressState(None, None, [], {})
+    if payload == "empty":
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w"):
+            pass
+        payload = buffer.getvalue()
+    articles = process_batch(
+        "20150218230000",
+        company=company,
+        paths=paths,
+        url_index=UrlIndex(),
+        model=_Model(),
+        title_opener=lambda url, timeout: "",
+        progress=progress,
+        fetcher=lambda url: payload,
+    )
+    assert articles == []
+    assert progress.open_gaps == ["20150218230000"]
+    assert progress.successful_spans == []
+    assert paths.progress_path.exists()
+    log = paths.gaps_log_path.read_text(encoding="utf-8")
+    assert "20150218230000" in log and expected in log
+    assert not (paths.tmp_dir / "20150218230000.gkg.csv.zip").exists()

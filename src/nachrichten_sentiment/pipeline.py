@@ -17,10 +17,23 @@ from nachrichten_sentiment.titles import fetch_title
 from nachrichten_sentiment.urls import normalize_url
 
 
+class EmptyGkgZipError(Exception):
+    """Die ZIP-Datei ist lesbar, enthält aber keine Datei."""
+
+
 def _extract_zip(zip_path: Path) -> str:
     with zipfile.ZipFile(zip_path) as archive:
-        name = archive.namelist()[0]
-        return archive.read(name).decode("utf-8", errors="replace")
+        names = archive.namelist()
+        if not names:
+            raise EmptyGkgZipError(zip_path.name)
+        return archive.read(names[0]).decode("utf-8", errors="replace")
+
+
+def _record_gap(batch_id: str, message: str, *, paths: ProjectPaths, progress: ProgressState) -> list[Article]:
+    mark_gap(progress, batch_id)
+    append_gap_log(paths.gaps_log_path, f"{batch_id} {message}")
+    save_progress(paths.progress_path, progress)
+    return []
 
 
 def process_batch(
@@ -44,10 +57,11 @@ def process_batch(
         )
         text = (extract_zip or _extract_zip)(zip_path)
     except (MissingGkgError, DownloadError) as exc:
-        mark_gap(progress, batch_id)
-        append_gap_log(paths.gaps_log_path, f"{batch_id} {exc}")
-        save_progress(paths.progress_path, progress)
-        return []
+        return _record_gap(batch_id, str(exc), paths=paths, progress=progress)
+    except zipfile.BadZipFile as exc:
+        return _record_gap(batch_id, f"defekte ZIP-Datei: {exc}", paths=paths, progress=progress)
+    except EmptyGkgZipError:
+        return _record_gap(batch_id, "leere ZIP-Datei ohne Inhalt", paths=paths, progress=progress)
     finally:
         leftover = paths.tmp_dir / f"{batch_id}.gkg.csv.zip"
         if leftover.exists():
