@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import json
-import os
+import logging
 from collections.abc import Iterable
 from dataclasses import asdict
-from pathlib import Path
 
+from nachrichten_sentiment.fileutil import atomic_write_text, repair_partial_last_line
 from nachrichten_sentiment.models import Article, DailyRow
 from nachrichten_sentiment.paths import ProjectPaths
+
+logger = logging.getLogger(__name__)
 
 
 def article_to_dict(article: Article) -> dict:
@@ -22,22 +24,11 @@ def daily_row_to_dict(row: DailyRow) -> dict:
     return asdict(row)
 
 
-def _atomic_write_text(target: Path, text: str) -> None:
-    """Schreibt erst in eine temporäre Datei und ersetzt dann atomar; ein Abbruch lässt die alte Datei gültig."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    tmp = target.with_name(target.name + ".tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        handle.write(text)
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(tmp, target)
-
-
 def rewrite_month_articles(paths: ProjectPaths, ticker: str, month: str, articles: list[Article]) -> None:
     """Schreibt die Monats-JSONL mit allen Artikeln des Monats (inklusive Nahduplikat-Flags) atomar neu."""
     target = paths.articles_dir(ticker) / f"{month}.jsonl"
     ordered = sorted(articles, key=lambda item: (item.batch_utc, item.gkg_record_id))
-    _atomic_write_text(
+    atomic_write_text(
         target,
         "".join(json.dumps(article_to_dict(article), ensure_ascii=False) + "\n" for article in ordered),
     )
@@ -52,6 +43,7 @@ def append_articles(paths: ProjectPaths, ticker: str, articles: list[Article]) -
     directory.mkdir(parents=True, exist_ok=True)
     for month, rows in by_month.items():
         target = directory / f"{month}.jsonl"
+        repair_partial_last_line(target)
         with target.open("a", encoding="utf-8") as handle:
             for article in rows:
                 handle.write(json.dumps(article_to_dict(article), ensure_ascii=False) + "\n")
@@ -63,9 +55,15 @@ def load_articles(paths: ProjectPaths, ticker: str) -> list[Article]:
         return []
     articles: list[Article] = []
     for file in sorted(directory.glob("*.jsonl")):
-        for line in file.read_text(encoding="utf-8").splitlines():
-            if line.strip():
+        lines = [line for line in file.read_text(encoding="utf-8").splitlines() if line.strip()]
+        for number, line in enumerate(lines, start=1):
+            try:
                 articles.append(article_from_dict(json.loads(line)))
+            except (json.JSONDecodeError, TypeError):
+                if number != len(lines):
+                    raise
+                # Abgebrochenes Anhängen: nur die letzte Zeile darf unvollständig sein.
+                logger.warning("überspringe unvollständige letzte Zeile in %s", file)
     return articles
 
 

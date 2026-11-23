@@ -1,46 +1,83 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from nachrichten_sentiment.fileutil import atomic_write_text, repair_partial_last_line
 from nachrichten_sentiment.models import ProgressState
 from nachrichten_sentiment.timeutil import FIRST_BATCH_ID, datetime_from_batch_id, iter_batch_ids, next_batch_id
 
 # Ein 404 auf einen jungen Satz kann an verspäteter Veröffentlichung liegen; ältere gelten als dauerhaft fehlend.
 MISSING_RETRY_WINDOW = timedelta(days=7)
 
+logger = logging.getLogger(__name__)
+
+
+def failed_titles_path(progress_path: Path) -> Path:
+    return progress_path.parent / "failed_titles.jsonl"
+
+
+def _load_failed_titles(path: Path) -> dict[str, str]:
+    if not path.exists():
+        return {}
+    entries: dict[str, str] = {}
+    lines = [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    for number, line in enumerate(lines, start=1):
+        try:
+            raw = json.loads(line)
+            entries[raw["url"]] = raw["error"]
+        except (json.JSONDecodeError, KeyError, TypeError):
+            if number != len(lines):
+                raise
+            logger.warning("überspringe unvollständige letzte Zeile in %s", path)
+    return entries
+
 
 def load_progress(path: Path) -> ProgressState:
-    if not path.exists():
-        return ProgressState(None, None, [], {})
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    from_file = _load_failed_titles(failed_titles_path(path))
+    raw = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    # Altbestand aus progress.json (vor failed_titles.jsonl) wird beim nächsten Speichern übernommen.
+    legacy = dict(raw.get("failed_title_fetches", {}))
     return ProgressState(
         last_success_batch_id=raw.get("last_success_batch_id"),
         cursor_batch_id=raw.get("cursor_batch_id"),
         open_gaps=list(raw.get("open_gaps", [])),
-        failed_title_fetches=dict(raw.get("failed_title_fetches", {})),
+        failed_title_fetches={**legacy, **from_file},
         successful_spans=[list(span) for span in raw.get("successful_spans", [])],
         missing_at_source=list(raw.get("missing_at_source", [])),
+        persisted_failed_titles=set(from_file),
     )
 
 
-def save_progress(path: Path, state: ProgressState) -> None:
+def _append_failed_titles(path: Path, state: ProgressState) -> None:
+    new = [key for key in state.failed_title_fetches if key not in state.persisted_failed_titles]
+    if not new:
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
+    repair_partial_last_line(path)
+    with path.open("a", encoding="utf-8") as handle:
+        for key in new:
+            handle.write(json.dumps({"url": key, "error": state.failed_title_fetches[key]}, ensure_ascii=False) + "\n")
+    state.persisted_failed_titles.update(new)
+
+
+def save_progress(path: Path, state: ProgressState) -> None:
+    _append_failed_titles(failed_titles_path(path), state)
+    atomic_write_text(
+        path,
         json.dumps(
             {
                 "last_success_batch_id": state.last_success_batch_id,
                 "cursor_batch_id": state.cursor_batch_id,
                 "open_gaps": state.open_gaps,
-                "failed_title_fetches": state.failed_title_fetches,
                 "successful_spans": state.successful_spans,
                 "missing_at_source": state.missing_at_source,
             },
-            indent=2,
             sort_keys=True,
+            separators=(",", ":"),
         ),
-        encoding="utf-8",
     )
 
 

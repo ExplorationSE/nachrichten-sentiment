@@ -101,3 +101,60 @@ def test_span_closes_after_recovered_missing_batch():
     assert state.successful_spans == [[a, c]]
     assert state.missing_at_source == []
     assert processed_batch_ids(state) == {a, b, c}
+
+
+def test_save_progress_is_compact_and_failed_titles_go_to_append_only_file(tmp_path: Path):
+    path = tmp_path / "state" / "progress.json"
+    failed_file = tmp_path / "state" / "failed_titles.jsonl"
+    state = ProgressState(None, None, [], {"https://a.example/x": "timeout"})
+    mark_success(state, "20150218230000")
+    save_progress(path, state)
+    text = path.read_text(encoding="utf-8")
+    assert "\n" not in text.strip()  # ohne indent
+    assert "failed_title_fetches" not in json.loads(text)
+    assert failed_file.read_text(encoding="utf-8").count("\n") == 1
+    loaded = load_progress(path)
+    assert loaded.failed_title_fetches == {"https://a.example/x": "timeout"}
+    loaded.failed_title_fetches["https://b.example/y"] = "no title in html"
+    save_progress(path, loaded)
+    save_progress(path, loaded)  # nichts Neues: nichts anhaengen
+    lines = failed_file.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 2
+    assert load_progress(path).failed_title_fetches == {
+        "https://a.example/x": "timeout",
+        "https://b.example/y": "no title in html",
+    }
+
+
+def test_failed_titles_migrate_from_old_progress_json(tmp_path: Path):
+    path = tmp_path / "progress.json"
+    path.write_text(
+        json.dumps({"cursor_batch_id": None, "open_gaps": [], "failed_title_fetches": {"https://old/x": "404"}}, indent=2),
+        encoding="utf-8",
+    )
+    state = load_progress(path)
+    assert state.failed_title_fetches == {"https://old/x": "404"}
+    save_progress(path, state)
+    assert "failed_title_fetches" not in json.loads(path.read_text(encoding="utf-8"))
+    assert load_progress(path).failed_title_fetches == {"https://old/x": "404"}
+
+
+def test_interrupted_save_leaves_old_progress_valid(tmp_path: Path, monkeypatch):
+    import os
+
+    import pytest
+
+    path = tmp_path / "progress.json"
+    state = ProgressState(None, None, [], {})
+    mark_success(state, "20150218230000")
+    save_progress(path, state)
+    mark_success(state, "20150218231500")
+
+    def boom(src, dst):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(os, "replace", boom)
+    with pytest.raises(OSError):
+        save_progress(path, state)
+    monkeypatch.undo()
+    assert load_progress(path).last_success_batch_id == "20150218230000"

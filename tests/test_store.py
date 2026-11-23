@@ -50,3 +50,21 @@ def test_store_writes_month_daily_and_headline_files(tmp_path: Path):
     assert headlines["2015-02-19"][0]["title"] == "NVIDIA raises forecast"
     assert headlines["2015-02-19"][0]["url"] == "https://example.com/a"
     assert headlines["2015-02-19"][0]["is_near_duplicate"] is False
+
+
+def test_load_articles_skips_broken_last_line_and_append_repairs_it(tmp_path: Path, caplog):
+    import logging
+
+    paths = ProjectPaths(tmp_path)
+    append_articles(paths, "NVDA", [_article()])
+    month_file = tmp_path / "data" / "articles" / "nvda" / "2015-02.jsonl"
+    with month_file.open("a", encoding="utf-8") as handle:
+        handle.write('{"gkg_record_id": "id-2", "url": "https://exa')  # Abbruch mitten im Schreiben
+    with caplog.at_level(logging.WARNING):
+        loaded = load_articles(paths, "NVDA")
+    assert [a.gkg_record_id for a in loaded] == ["id-1"]
+    assert "2015-02.jsonl" in caplog.text
+    second = _article()
+    second.gkg_record_id = "id-3"
+    append_articles(paths, "NVDA", [second])
+    assert [a.gkg_record_id for a in load_articles(paths, "NVDA")] == ["id-1", "id-3"]
