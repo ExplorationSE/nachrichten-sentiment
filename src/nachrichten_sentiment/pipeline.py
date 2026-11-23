@@ -1,18 +1,35 @@
 from __future__ import annotations
 
 import zipfile
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-from nachrichten_sentiment.dedup import UrlIndex
+from nachrichten_sentiment.daily import aggregate_daily
+from nachrichten_sentiment.dedup import UrlIndex, mark_near_duplicates
 from nachrichten_sentiment.download import DownloadError, MissingGkgError, download_gkg_zip
 from nachrichten_sentiment.filter_company import matches_company
 from nachrichten_sentiment.gkg import parse_gkg_line
-from nachrichten_sentiment.models import Article, CompanyConfig, ProgressState
+from nachrichten_sentiment.models import Article, CompanyConfig, DailyRow, ProgressState
 from nachrichten_sentiment.paths import ProjectPaths
-from nachrichten_sentiment.progress import append_gap_log, mark_gap, mark_success, save_progress
+from nachrichten_sentiment.progress import (
+    append_gap_log,
+    batches_to_process,
+    load_progress,
+    mark_gap,
+    mark_success,
+    processed_batch_ids,
+    save_progress,
+)
 from nachrichten_sentiment.sentiment import SentimentModel, score_title
-from nachrichten_sentiment.store import append_articles
-from nachrichten_sentiment.timeutil import berlin_day_from_batch_id, datetime_from_batch_id
+from nachrichten_sentiment.store import append_articles, load_articles, write_daily, write_headlines
+from nachrichten_sentiment.timeutil import (
+    FIRST_BERLIN_DAY,
+    batch_id_from_datetime,
+    berlin_day_from_batch_id,
+    datetime_from_batch_id,
+    expected_batch_ids_for_berlin_day,
+    previous_berlin_day,
+)
 from nachrichten_sentiment.titles import fetch_title
 from nachrichten_sentiment.urls import normalize_url
 
@@ -120,3 +137,125 @@ def process_batch(
     mark_success(progress, batch_id)
     save_progress(paths.progress_path, progress)
     return articles
+
+
+def rebuild_outputs(paths: ProjectPaths, company: CompanyConfig, progress: ProgressState) -> list[DailyRow]:
+    """Baut Tageswerte und Schlagzeilen vollständig aus allen gespeicherten Artikeln neu auf."""
+    articles = mark_near_duplicates(load_articles(paths, company.ticker))
+    processed = processed_batch_ids(progress)
+    end_day = berlin_day_from_batch_id(progress.cursor_batch_id) if progress.cursor_batch_id else FIRST_BERLIN_DAY
+    rows: list[DailyRow] = []
+    day = FIRST_BERLIN_DAY
+    while day <= end_day:
+        rows.append(aggregate_daily(articles, day, processed))
+        day += timedelta(days=1)
+    write_daily(paths, company.ticker, rows, company.display_name)
+    write_headlines(paths, company.ticker, articles)
+    return rows
+
+
+def run_batches(
+    batch_ids: list[str],
+    *,
+    company: CompanyConfig,
+    paths: ProjectPaths,
+    model: SentimentModel | None,
+    title_opener,
+    fetcher=None,
+    extract_zip=None,
+) -> None:
+    progress = load_progress(paths.progress_path)
+    url_index = UrlIndex()
+    url_index.load_from_articles(load_articles(paths, company.ticker))
+    already = processed_batch_ids(progress)
+    for batch_id in batch_ids:
+        if batch_id in already:
+            continue
+        process_batch(
+            batch_id,
+            company=company,
+            paths=paths,
+            url_index=url_index,
+            model=model,
+            title_opener=title_opener,
+            progress=progress,
+            fetcher=fetcher,
+            extract_zip=extract_zip,
+        )
+    rebuild_outputs(paths, company, progress)
+
+
+def _latest_published_batch_id(now: datetime | None = None) -> str:
+    """Letzter sicher veröffentlichter 15-Minuten-Satz: Viertelstunde vor der aktuellen, abgerundet."""
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc) - timedelta(minutes=15)
+    rounded = current.replace(minute=(current.minute // 15) * 15, second=0, microsecond=0)
+    return batch_id_from_datetime(rounded)
+
+
+def run_initial(
+    paths: ProjectPaths,
+    company: CompanyConfig,
+    model: SentimentModel | None,
+    title_opener,
+    until_id: str | None = None,
+    fetcher=None,
+    extract_zip=None,
+) -> None:
+    progress = load_progress(paths.progress_path)
+    target = until_id or _latest_published_batch_id()
+    run_batches(
+        batches_to_process(progress, target),
+        company=company,
+        paths=paths,
+        model=model,
+        title_opener=title_opener,
+        fetcher=fetcher,
+        extract_zip=extract_zip,
+    )
+
+
+def run_daily(
+    paths: ProjectPaths,
+    company: CompanyConfig,
+    model: SentimentModel | None,
+    title_opener,
+    day: date | None = None,
+    fetcher=None,
+    extract_zip=None,
+) -> None:
+    target = day or previous_berlin_day()
+    until_id = expected_batch_ids_for_berlin_day(target)[-1]
+    progress = load_progress(paths.progress_path)
+    run_batches(
+        batches_to_process(progress, until_id),
+        company=company,
+        paths=paths,
+        model=model,
+        title_opener=title_opener,
+        fetcher=fetcher,
+        extract_zip=extract_zip,
+    )
+
+
+def run_trial(
+    paths: ProjectPaths,
+    company: CompanyConfig,
+    model: SentimentModel | None,
+    title_opener,
+    start_day: date,
+    days: int = 7,
+    fetcher=None,
+    extract_zip=None,
+) -> None:
+    wanted: list[str] = []
+    for offset in range(days):
+        wanted.extend(expected_batch_ids_for_berlin_day(start_day + timedelta(days=offset)))
+    run_batches(
+        wanted,
+        company=company,
+        paths=paths,
+        model=model,
+        title_opener=title_opener,
+        fetcher=fetcher,
+        extract_zip=extract_zip,
+    )

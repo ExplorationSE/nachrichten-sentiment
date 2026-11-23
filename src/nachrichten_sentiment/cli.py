@@ -1,0 +1,62 @@
+from __future__ import annotations
+
+import argparse
+from datetime import date
+from pathlib import Path
+
+from nachrichten_sentiment.companies import load_company
+from nachrichten_sentiment.paths import ProjectPaths, default_root
+from nachrichten_sentiment.pipeline import run_daily, run_initial, run_trial
+from nachrichten_sentiment.titles import http_title_opener
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="nachrichten-sentiment")
+    sub = parser.add_subparsers(dest="command", required=True)
+    erstlauf = sub.add_parser("erstlauf", help="alle GKG-Sätze ab 20150218230000 fortsetzbar verarbeiten")
+    erstlauf.add_argument("--until", default=None, help="letzter Satz YYYYMMDDHHMMSS")
+    tageslauf = sub.add_parser("tageslauf", help="Vortag in Europe/Berlin plus offene Lücken")
+    tageslauf.add_argument("--day", default=None, help="Zieltag YYYY-MM-DD")
+    probelauf = sub.add_parser("probelauf", help="einige Berlin-Tage zur Probe verarbeiten")
+    probelauf.add_argument("--start", required=True, help="erster Tag YYYY-MM-DD")
+    probelauf.add_argument("--days", type=int, default=7)
+    probelauf.add_argument("--fixture-dir", default=None, help="lokale GKG-ZIPs statt Download")
+    return parser
+
+
+def _model():
+    from nachrichten_sentiment.sentiment import FinBertModel
+
+    return FinBertModel()
+
+
+def _fixture_fetcher(fixture: Path):
+    def fetcher(url: str) -> bytes:
+        batch_id = url.rsplit("/", 1)[-1].split(".")[0]
+        return (fixture / f"{batch_id}.gkg.csv.zip").read_bytes()
+
+    return fetcher
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = build_parser().parse_args(argv)
+    paths = ProjectPaths(default_root())
+    company = load_company("NVDA")
+    model = _model()
+    if args.command == "erstlauf":
+        run_initial(paths, company, model, http_title_opener, until_id=args.until)
+    elif args.command == "tageslauf":
+        day = date.fromisoformat(args.day) if args.day else None
+        run_daily(paths, company, model, http_title_opener, day=day)
+    elif args.command == "probelauf":
+        fetcher = _fixture_fetcher(Path(args.fixture_dir)) if args.fixture_dir else None
+        run_trial(
+            paths,
+            company,
+            model,
+            http_title_opener,
+            date.fromisoformat(args.start),
+            days=args.days,
+            fetcher=fetcher,
+        )
+    return 0
