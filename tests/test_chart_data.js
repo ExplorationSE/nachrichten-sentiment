@@ -11,6 +11,7 @@ const {
   resolveMode,
   modeCounts,
   DEFAULT_MODE,
+  initialRange,
   DEFAULT_VIEW,
   resolveView,
   toCandleSeries,
@@ -294,6 +295,43 @@ test("line segment color follows the END point of each segment in both modes", (
   const ohne = toLineSeries(days, "ohne");
   // 24→25 endet bei −0,2 → rot; 25→26 endet bei 0 → grün (>= 0).
   assert.deepEqual(ohne.map((p) => p.color), [G, R, G, G, "#8b949e", R]);
+});
+
+function daySeries(spec) {
+  // spec: Liste von [ersterTag, Anzahl, coverage]
+  const days = [];
+  for (const [start, count, coverage] of spec) {
+    const d = new Date(start + "T00:00:00Z");
+    for (let i = 0; i < count; i += 1) {
+      days.push({ date: d.toISOString().slice(0, 10), coverage });
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+  }
+  return days;
+}
+
+test("initial view starts after the last long gap (e.g. 2020 after a deferred 2015-2019 hole)", () => {
+  const days = daySeries([
+    ["2015-02-19", 40, "complete"],
+    ["2015-03-31", 1700, "gap"],
+    ["2019-12-25", 7, "gap"],
+    ["2020-01-01", 30, "complete"],
+    ["2020-01-31", 2, "gap"], // kurze Lücke zählt nicht
+    ["2020-02-02", 10, "complete"],
+    ["2020-02-12", 1, "gap"], // jüngster Tag noch unvollständig
+  ]);
+  assert.deepEqual(initialRange(days), { from: "2020-01-01", to: "2020-02-11" });
+});
+
+test("initial view is the full range without a long gap", () => {
+  const days = daySeries([
+    ["2020-01-01", 30, "complete"],
+    ["2020-01-31", 60, "gap"],
+    ["2020-03-31", 5, "complete"],
+  ]);
+  assert.equal(initialRange(days), null);
+  assert.equal(initialRange([]), null);
+  assert.equal(initialRange(daySeries([["2020-01-01", 200, "gap"]])), null);
 });
 
 const CANDLE_DAY = {

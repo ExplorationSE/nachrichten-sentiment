@@ -210,6 +210,27 @@ function safeHref(url) {
   return null;
 }
 
+// Ab dieser Länge (Tage ohne vollständige Daten) gilt eine Lücke als Sammelpause, z. B. ein später nachzuholender Bereich.
+const LONG_GAP_DAYS = 90;
+
+function initialRange(days, minGapDays = LONG_GAP_DAYS) {
+  // Startansicht: nach der letzten langen Lücke bis zum letzten vollständigen Tag; sonst null (alles zeigen).
+  let run = 0;
+  let from = null;
+  let to = null;
+  for (const day of days) {
+    if (day.coverage === "complete") {
+      if (run >= minGapDays) from = day.date;
+      run = 0;
+      to = day.date;
+    } else {
+      run += 1;
+    }
+  }
+  if (!from || !to) return null;
+  return { from, to };
+}
+
 function rangeStart(endDate, rangeKey) {
   if (rangeKey === "1M") return shiftDate(endDate, -1, 0);
   if (rangeKey === "3M") return shiftDate(endDate, -3, 0);
@@ -219,5 +240,5 @@ function rangeStart(endDate, rangeKey) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { DEFAULT_VIEW, resolveView, toCandleSeries, formatCandle, DEFAULT_MODE, MODE_LABELS, resolveMode, modeCounts, formatTooltip, gapLabel, formatSentiment, formatDayHeading, toBarSeries, toLineSeries, rangeStart, safeHref };
+  module.exports = { initialRange, DEFAULT_VIEW, resolveView, toCandleSeries, formatCandle, DEFAULT_MODE, MODE_LABELS, resolveMode, modeCounts, formatTooltip, gapLabel, formatSentiment, formatDayHeading, toBarSeries, toLineSeries, rangeStart, safeHref };
 }

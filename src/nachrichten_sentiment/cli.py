@@ -1,20 +1,44 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date
+import signal
+from datetime import date, datetime
 from pathlib import Path
 
 from nachrichten_sentiment.companies import load_company
 from nachrichten_sentiment.paths import ProjectPaths, default_root
-from nachrichten_sentiment.pipeline import run_daily, run_initial, run_trial
+from nachrichten_sentiment.pipeline import DEFAULT_WORKERS, run_daily, run_deferred, run_initial, run_trial
 from nachrichten_sentiment.titles import http_title_opener
+
+
+def batch_id_arg(value: str) -> str:
+    """Satzkennung YYYYMMDDHHMMSS auf einer Viertelstunde (UTC)."""
+    try:
+        moment = datetime.strptime(value, "%Y%m%d%H%M%S")
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"erwartet YYYYMMDDHHMMSS, erhalten: {value}") from None
+    if moment.minute % 15 or moment.second:
+        raise argparse.ArgumentTypeError(f"Satz muss auf einer Viertelstunde liegen: {value}")
+    return value
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nachrichten-sentiment")
     sub = parser.add_subparsers(dest="command", required=True)
     erstlauf = sub.add_parser("erstlauf", help="alle GKG-Sätze ab 20150218230000 fortsetzbar verarbeiten")
-    erstlauf.add_argument("--until", default=None, help="letzter Satz YYYYMMDDHHMMSS")
+    erstlauf.add_argument("--until", default=None, type=batch_id_arg, help="letzter Satz YYYYMMDDHHMMSS")
+    bereich = erstlauf.add_mutually_exclusive_group()
+    bereich.add_argument(
+        "--start",
+        default=None,
+        type=batch_id_arg,
+        help="erst ab diesem Satz YYYYMMDDHHMMSS sammeln; der übersprungene Bereich wird zum Nachholen vorgemerkt",
+    )
+    bereich.add_argument(
+        "--nachholen",
+        action="store_true",
+        help="vorgemerkte Bereiche eines früheren --start nachholen (fertige Sätze werden übersprungen)",
+    )
     tageslauf = sub.add_parser("tageslauf", help="Vortag in Europe/Berlin plus offene Lücken")
     tageslauf.add_argument("--day", default=None, help="Zieltag YYYY-MM-DD")
     for command in (erstlauf, tageslauf):
@@ -27,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
             "--voll-neuaufbau",
             action="store_true",
             help="Nahduplikate, Monatsdateien und Schlagzeilen für alle Tage neu berechnen statt nur betroffene",
+        )
+        command.add_argument(
+            "--parallel",
+            type=int,
+            default=DEFAULT_WORKERS,
+            help=f"Anzahl paralleler Downloads (Standard {DEFAULT_WORKERS}, 1 = nacheinander)",
         )
     probelauf = sub.add_parser("probelauf", help="einige Berlin-Tage zur Probe verarbeiten")
     probelauf.add_argument("--start", required=True, help="erster Tag YYYY-MM-DD")
@@ -54,13 +84,28 @@ def _fixture_fetcher(fixture: Path):
     return fetcher
 
 
+def _exit_on_sigterm(signum, frame):
+    # SIGTERM wie Strg+C behandeln: laufende Downloads sauber beenden, gespeicherter Stand bleibt konsistent.
+    raise SystemExit(128 + signum)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    signal.signal(signal.SIGTERM, _exit_on_sigterm)
     root = default_root()
     paths = ProjectPaths(root)
     company = load_company("NVDA")
     model = _model()
-    if args.command == "erstlauf":
+    if args.command == "erstlauf" and args.nachholen:
+        run_deferred(
+            paths,
+            company,
+            model,
+            http_title_opener,
+            full_rebuild=args.voll_neuaufbau,
+            workers=max(1, args.parallel),
+        )
+    elif args.command == "erstlauf":
         run_initial(
             paths,
             company,
@@ -69,6 +114,8 @@ def main(argv: list[str] | None = None) -> int:
             until_id=args.until,
             retry_missing=args.luecken_erneut,
             full_rebuild=args.voll_neuaufbau,
+            workers=max(1, args.parallel),
+            start_id=args.start,
         )
     elif args.command == "tageslauf":
         day = date.fromisoformat(args.day) if args.day else None
@@ -80,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             day=day,
             retry_missing=args.luecken_erneut,
             full_rebuild=args.voll_neuaufbau,
+            workers=max(1, args.parallel),
         )
     elif args.command == "probelauf":
         fetcher = _fixture_fetcher(Path(args.fixture_dir)) if args.fixture_dir else None

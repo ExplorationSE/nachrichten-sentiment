@@ -206,8 +206,17 @@ function attachCharts(days) {
     barChart.timeScale().setVisibleRange({ from: start, to: end });
     lineChart.timeScale().setVisibleRange({ from: start, to: end });
   });
-  barChart.timeScale().fitContent();
-  lineChart.timeScale().fitContent();
+  const initial = initialRange(days);
+  if (initial) {
+    // Nach einer langen Sammelpause (z. B. 2015–2019 noch nicht nachgeholt) mit dem zusammenhängenden Bereich starten;
+    // „Maximum“ zeigt weiterhin alles.
+    document.querySelectorAll("#ranges button").forEach((el) => el.classList.remove("on"));
+    barChart.timeScale().setVisibleRange(initial);
+    lineChart.timeScale().setVisibleRange(initial);
+  } else {
+    barChart.timeScale().fitContent();
+    lineChart.timeScale().fitContent();
+  }
 }
 
 function updateDayHeading(date, row) {

@@ -109,3 +109,47 @@ def test_parse_html_title_truncates_to_300_characters():
     assert len(parsed) <= 300
     og = parse_html_title(f'<meta property="og:title" content="{"X" * 1000}">')
     assert og == "X" * 300
+
+
+def test_http_title_opener_falls_back_to_https_when_plain_http_fails(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    seen: list[str] = []
+
+    class _Resp:
+        headers = type("H", (), {"get_content_charset": staticmethod(lambda: "utf-8")})()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def read(self, n):
+            return b"<html><title>Sicher</title></html>"
+
+    def fake_urlopen(request, timeout):
+        seen.append(request.full_url)
+        if request.full_url.startswith("http:"):
+            raise urllib.error.HTTPError(request.full_url, 500, "Internal Server Error", None, None)
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    html = http_title_opener("http://example.com/a?b=1", 5.0, pause_seconds=0)
+    assert "Sicher" in html
+    assert seen == ["http://example.com/a?b=1", "https://example.com/a?b=1"]
+
+
+def test_http_title_opener_raises_original_error_when_https_also_fails(monkeypatch):
+    import urllib.error
+    import urllib.request
+
+    def fake_urlopen(request, timeout):
+        code = 500 if request.full_url.startswith("http:") else 404
+        raise urllib.error.HTTPError(request.full_url, code, "x", None, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(urllib.error.HTTPError) as info:
+        http_title_opener("http://example.com/a", 5.0, pause_seconds=0)
+    assert info.value.code == 500
