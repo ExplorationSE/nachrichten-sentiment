@@ -17,7 +17,7 @@
 - Stimmungswert = \(P(\text{positiv}) - P(\text{negativ})\), Intervall \([-1, +1]\); Modell ProsusAI/finbert, lokal, nur auf verfügbaren Titeln; Klasse nach argmax (`positive` / `neutral` / `negative`).
 - GDELT-eigener Tonwert (`V1.5TONE` / GCAM) und große KI-Sprachmodelle werden nicht verwendet.
 - Nahduplikat-Schwelle: `difflib.SequenceMatcher.ratio` mindestens 0,90 auf normalisierten Titeln desselben Berlin-Tages; Artikel ohne Titel werden nicht gruppiert.
-- Alle Diagramm- und Tooltip-Anzahlen beziehen sich auf URL-eindeutige Artikel; Balken zeigen nur `count_positive` (grün nach oben, `--up` `#26a69a`) und `count_negative` (rot nach unten, `--down` `#ef5350`); Gesamtzahl und Neutralzahl stehen im Tooltip, nicht als Balken.
+- Gesamtzahl bezieht sich auf URL-eindeutige Artikel; Klassen-Anzahlen, Balken und Tagesmittelwert nur auf Artikel ohne Nahduplikate (`is_near_duplicate == false`, Änderung vom 24.11.2026); Balken zeigen nur `count_positive` (grün nach oben, `--up` `#26a69a`) und `count_negative` (rot nach unten, `--down` `#ef5350`); Gesamtzahl und Neutralzahl stehen im Tooltip, nicht als Balken.
 - CSS-Farben wörtlich: `--bg` `#0d1117`, `--card` `#161b22`, `--line` `#30363d`, `--txt` `#e6edf3`, `--mut` `#8b949e`, `--up` `#26a69a`, `--down` `#ef5350`, `--acc` `#58a6ff`, aktiver Chip-Hintergrund `#1f2937`, Fußzeile `#6e7681`.
 - Arbeitstitel der Seite: „Nachrichten-Sentiment“, Untertitel „Nvidia (NVDA)“; Schrift `system-ui, -apple-system, Segoe UI, Roboto, sans-serif`; Zeitraum-Chips: 1 Monat, 3 Monate, 1 Jahr, 5 Jahre, Maximum.
 - Täglicher Lauf um 06:00 Europe/Berlin per GitHub Action, zusätzlich `workflow_dispatch`; bei Fehlschlag keine neue Pages-Veröffentlichung; E-Mail über die GitHub-Actions-Benachrichtigung an ExplorationSE.

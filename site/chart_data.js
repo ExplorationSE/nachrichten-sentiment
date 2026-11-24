@@ -14,30 +14,26 @@ function gapLabel(row) {
 function formatTooltip(row) {
   const label = gapLabel(row);
   const gapPrefix = label ? label + " — " : "";
+  // Klassen und Stimmung beziehen sich auf die Meldungen ohne Nahduplikate.
+  const distinct =
+    row.count_after_near_dup_collapse !== undefined
+      ? ", " + row.count_after_near_dup_collapse + " ohne Nahduplikate"
+      : "";
   let text =
     gapPrefix +
     row.count_unique_url +
-    " Nachrichten: " +
+    " Nachrichten" +
+    distinct +
+    ": " +
     row.count_positive +
     " positiv, " +
     row.count_neutral +
     " neutral, " +
     row.count_negative +
     " negativ";
-  if (row.sentiment_mean === null || row.sentiment_mean === undefined) {
-    text += ", Stimmung —";
-  } else {
-    const formatted =
-      row.sentiment_mean > 0
-        ? "+" + row.sentiment_mean.toFixed(2).replace(".", ",")
-        : formatNumber(row.sentiment_mean);
-    text += ", Stimmung " + formatted;
-  }
+  text += ", Stimmung " + formatSentiment(row.sentiment_mean);
   if (row.count_without_sentiment > 0) {
     text += ", " + row.count_without_sentiment + " ohne Wert";
-  }
-  if (row.count_after_near_dup_collapse !== undefined) {
-    text += " (" + row.count_after_near_dup_collapse + " ohne Nahduplikate)";
   }
   return text;
 }

@@ -28,7 +28,7 @@
   <header>
     <h1>Nachrichten-Sentiment</h1>
     <div class="sub">Nvidia (NVDA)</div>
-    <p class="sub">Die Balken zählen positive und negative Nachrichten nach der FinBERT-Klasse (argmax). Die Linie zeigt den abgestuften Tagesmittelwert von P(positiv) minus P(negativ) und kann deshalb von den Balken abweichen. Neutrale Nachrichten und die Gesamtzahl stehen im Tooltip.</p>
+    <p class="sub">Die Balken zählen positive und negative Nachrichten nach der FinBERT-Klasse (argmax), ohne Nahduplikate: Eine vielfach übernommene Meldung zählt nur einmal. Die Linie zeigt den abgestuften Tagesmittelwert von P(positiv) minus P(negativ) über dieselben Nachrichten und kann deshalb von den Balken abweichen. Neutrale Nachrichten, die Gesamtzahl und die Zahl ohne Nahduplikate stehen im Tooltip.</p>
     <div class="ranges" id="ranges">
       <button data-range="1M">1 Monat</button>
       <button data-range="3M">3 Monate</button>

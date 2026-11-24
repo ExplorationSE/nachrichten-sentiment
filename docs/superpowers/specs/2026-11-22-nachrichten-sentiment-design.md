@@ -97,14 +97,14 @@ URLs werden normalisiert: Host in Kleinbuchstaben, kein abschließender Schrägs
 
 Zusätzlich werden am selben Kalendertag (Europe/Berlin, siehe Abschnitt 6.1) nahezu gleiche Titel erkannt, nachdem der Titel normalisiert wurde: Unicode NFKC, Kleinbuchstaben, zusammengezogene Leerzeichen, typische Seiten-Suffixe nach ` | ` oder ` – ` entfernt.
 
-Zwei Titel desselben Tages gelten als nahezu gleich, wenn die normalisierten Zeichenketten identisch sind **oder** ihre Ähnlichkeit nach `difflib.SequenceMatcher.ratio` mindestens **0,90** beträgt. Das zeitlich erste Vorkommen bleibt die Stammzeile; die weiteren werden als Nahduplikat markiert, aber nicht gelöscht. Artikel ohne Titel (`title_source = missing`) werden nicht als Nahduplikat behandelt und zählen in beiden Anzahlen einzeln.
+Zwei Titel desselben Tages gelten als nahezu gleich, wenn die normalisierten Zeichenketten identisch sind **oder** ihre Ähnlichkeit nach `difflib.SequenceMatcher.ratio` mindestens **0,90** beträgt. Das zeitlich erste Vorkommen bleibt die Stammzeile; die weiteren werden als Nahduplikat markiert, aber nicht gelöscht. Artikel ohne Titel (`title_source = missing`) werden nicht als Nahduplikat behandelt und zählen in beiden Anzahlen einzeln. Nur die Stammzeilen (Artikel mit `is_near_duplicate = false`) gehen in Klassen-Anzahlen, Balken und Tagesmittelwert ein.
 
 Beide Anzahlen bleiben sichtbar, aber nicht als Balken:
 
 - **Hauptwert** (`count_unique_url`): Anzahl nach Entfernen gleicher URLs. Er erscheint im Tooltip und im Kopf der Tagesliste, nicht als Balkenserie.
 - **Zusatzwert** (`count_after_near_dup_collapse`): dieselbe Menge ohne Nahduplikate (jedes Nahduplikat-Cluster zählt als eins), ebenfalls im Tooltip und im Kopf der Tagesliste.
 
-Die Balken im Hauptdiagramm zeigen nicht diese Gesamtzahlen, sondern die Anzahl positiver und negativer Nachrichten nach FinBERT-argmax (Abschnitt 8.1), bezogen auf die URL-eindeutigen Artikel.
+Die Balken im Hauptdiagramm zeigen nicht diese Gesamtzahlen, sondern die Anzahl positiver und negativer Nachrichten nach FinBERT-argmax (Abschnitt 8.1), bezogen auf die Artikel **ohne Nahduplikate** (dieselbe Menge wie `count_after_near_dup_collapse`). So zählt eine vielfach übernommene Agenturmeldung nur einmal.
 
 In der Tagesliste erscheinen alle URL-eindeutigen Schlagzeilen; Nahduplikate werden an der Stammzeile gruppiert dargestellt.
 
@@ -120,8 +120,8 @@ und liegt damit automatisch in \([-1, +1]\).
 
 Zusätzlich wird die vom Modell bevorzugte Klasse (argmax über die drei Wahrscheinlichkeiten) gespeichert: `positive`, `neutral` oder `negative`.
 
-- Der **Tagesmittelwert** ist das arithmetische Mittel der `sentiment`-Werte aller URL-eindeutigen Artikel dieses Tages, die einen Wert haben (einschließlich Nahduplikate). Artikel ohne Titel bzw. ohne Wert gehen nicht in den Mittelwert ein; fehlen an einem vollständig verarbeiteten Tag alle Werte, ist der Mittelwert `null` (Lücke in der Stimmungslinie, nicht `0`).
-- Die **Anzahlen positiv, neutral und negativ** zählen URL-eindeutige Artikel nach der argmax-Klasse. Alle drei sind Pflichtfelder der Tageszeile. Im Diagramm werden nur positiv (Balken nach oben) und negativ (Balken nach unten) gezeichnet; die neutrale Anzahl und die Gesamtzahl erscheinen im Tooltip (Abschnitt 8.1). Artikel ohne Wert bilden eine gesonderte Zahl `count_without_sentiment` und erscheinen in der Tagesliste ohne numerischen Wert; ist sie größer als null, nennt der Tooltip sie zusätzlich. Es gilt `count_positive + count_neutral + count_negative + count_without_sentiment = count_unique_url`.
+- Der **Tagesmittelwert** ist das arithmetische Mittel der `sentiment`-Werte aller Artikel dieses Tages ohne Nahduplikate (`is_near_duplicate = false`), die einen Wert haben. Artikel ohne Titel bzw. ohne Wert gehen nicht in den Mittelwert ein; fehlen an einem vollständig verarbeiteten Tag alle Werte, ist der Mittelwert `null` (Lücke in der Stimmungslinie, nicht `0`).
+- Die **Anzahlen positiv, neutral und negativ** zählen die Artikel ohne Nahduplikate nach der argmax-Klasse. Alle drei sind Pflichtfelder der Tageszeile. Im Diagramm werden nur positiv (Balken nach oben) und negativ (Balken nach unten) gezeichnet; die neutrale Anzahl und die Gesamtzahl erscheinen im Tooltip (Abschnitt 8.1). Artikel ohne Wert (ebenfalls ohne Nahduplikate gezählt) bilden eine gesonderte Zahl `count_without_sentiment` und erscheinen in der Tagesliste ohne numerischen Wert; ist sie größer als null, nennt der Tooltip sie zusätzlich. Es gilt `count_positive + count_neutral + count_negative + count_without_sentiment = count_after_near_dup_collapse` (≤ `count_unique_url`).
 
 Ein großes KI-Sprachmodell ist nicht Bestandteil dieses Umfangs (Abschnitt 12).
 
@@ -147,8 +147,8 @@ Je behaltenem (URL-eindeutigem) Artikel:
 - `date` (Europe/Berlin)
 - `count_unique_url` (Gesamtzahl nach URL-Deduplizierung; Tooltip und Tagesliste, nicht als Balken)
 - `count_after_near_dup_collapse` (Zusatzwert; Tooltip und Tagesliste)
-- `count_positive`, `count_neutral`, `count_negative` (argmax-Anzahlen der URL-eindeutigen Artikel; positiv und negativ sind die Balkenserien, neutral nur im Tooltip)
-- `count_without_sentiment`
+- `count_positive`, `count_neutral`, `count_negative` (argmax-Anzahlen der Artikel ohne Nahduplikate; positiv und negativ sind die Balkenserien, neutral nur im Tooltip)
+- `count_without_sentiment` (Artikel ohne Nahduplikate ohne Wert)
 - `sentiment_mean` (Zahl oder `null`; Stimmungslinie)
 - `coverage` (`complete` | `gap`): `complete`, wenn alle für diesen Berlin-Tag erwarteten 15-Minuten-Dateien erfolgreich verarbeitet wurden (auch wenn die Nvidia-Anzahl 0 ist); `gap`, wenn mindestens eine Datei fehlt oder unlesbar blieb.
 
@@ -194,7 +194,7 @@ Die Konfiguration der Gesellschaft (Ticker `NVDA`, Anzeigename, Suchbegriffe) li
 ### 8.1 Darstellung
 
 - Oben: Hauptdiagramm als Balken um eine Nulllinie. Die Nulllinie steht für den neutralen Bereich: von ihr aus gehen **grüne Balken** (`--up`, `#26a69a`) nach oben mit der Anzahl positiver Nachrichten des Tages und **rote Balken** (`--down`, `#ef5350`) nach unten mit der Anzahl negativer Nachrichten, jeweils nach FinBERT-argmax (`count_positive` bzw. `count_negative`). Beide Richtungen teilen sich eine gemeinsame Anzahl-Skala. Die neutrale Anzahl und die Gesamtzahl werden **nicht** als Balken gezeichnet.
-- Beim Überfahren eines Tages erscheint ein Tooltip, der Gesamtzahl, Klassen und Stimmung nennt, zum Beispiel: „120 Nachrichten: 45 positiv, 50 neutral, 25 negativ, Stimmung +0,18“. Ist `count_without_sentiment` größer als 0, wird das zusätzlich genannt (etwa „5 ohne Wert“). Fehlt der Tagesmittelwert, entfällt die Angabe „Stimmung …“ oder sie erscheint als „Stimmung —“. Der Zusatzwert nach Nahduplikat-Berechnung erscheint in diesem Tooltip und im Kopf der Tagesliste.
+- Beim Überfahren eines Tages erscheint ein Tooltip, der Gesamtzahl, Klassen und Stimmung nennt, zum Beispiel: „120 Nachrichten, 110 ohne Nahduplikate: 45 positiv, 50 neutral, 15 negativ, Stimmung +0,18“. Die Klassen und die Stimmung beziehen sich auf die Zahl ohne Nahduplikate. Ist `count_without_sentiment` größer als 0, wird das zusätzlich genannt (etwa „5 ohne Wert“). Fehlt der Tagesmittelwert, entfällt die Angabe „Stimmung …“ oder sie erscheint als „Stimmung —“. Der Zusatzwert nach Nahduplikat-Berechnung erscheint in diesem Tooltip und im Kopf der Tagesliste.
 - Darunter: Stimmung als Linie (`sentiment_mean`) im Intervall \([-1, +1]\), mit Nulllinie. Abschnitte über 0 werden grün (`--up`) eingefärbt, Abschnitte unter 0 rot (`--down`). Tage ohne Mittelwert unterbrechen die Linie.
 - Balken und Linie können voneinander abweichen, weil sie Unterschiedliches messen: Die Balken zählen Kategorien nach argmax (welche Klasse die größte Wahrscheinlichkeit hat), die Linie den abgestuften Tagesmittelwert \(P(\text{positiv}) - P(\text{negativ})\). Viele schwach positive Meldungen und wenige stark negative können deshalb mehr grüne als rote Balken zeigen, während die Linie unter 0 liegt — oder umgekehrt. Neutrale Meldungen erscheinen nicht in den Balken, fließen aber mit Werten nahe 0 in die Linie ein, sofern ein Stimmungswert vorliegt.
 - Zoom und Zeitraumwahl, in der Bedienung an SE Aktien angelehnt. Zeitraum-Chips: 1 Monat, 3 Monate, 1 Jahr, 5 Jahre, Maximum.
@@ -244,7 +244,7 @@ Unit-Tests mit kleinen, festen Beispieldaten, ohne Netz und ohne das volle FinBE
 - URL-Normalisierung und globales Entfernen gleicher Adressen (erstes Vorkommen bleibt).
 - Erkennung nahezu gleicher Titel am selben Tag, getrennte Zählung beider Anzahlen und das Nicht-Gruppieren von Artikeln ohne Titel.
 - Umrechnung FinBERT-Wahrscheinlichkeiten in den Wert \(P(\text{positiv}) - P(\text{negativ})\) einschließlich der Intervallgrenzen und der argmax-Klasse.
-- Bildung der Tageswerte, einschließlich der Pflichtfelder `count_positive`, `count_neutral` und `count_negative`, der Summe `count_positive + count_neutral + count_negative + count_without_sentiment = count_unique_url`, echter Null bei vollständiger Abdeckung (Balkenhöhe 0, nicht verwechseln mit einem Tag nur aus Neutralen), Lücke bei `coverage = gap` (auch wenn bereits Teilartikel vorliegen) sowie Mittelwert ohne Artikel mit `sentiment = null`.
+- Bildung der Tageswerte, einschließlich der Pflichtfelder `count_positive`, `count_neutral` und `count_negative`, der Summe `count_positive + count_neutral + count_negative + count_without_sentiment = count_after_near_dup_collapse` (Nahduplikate zählen weder in Klassen noch im Mittelwert), echter Null bei vollständiger Abdeckung (Balkenhöhe 0, nicht verwechseln mit einem Tag nur aus Neutralen), Lücke bei `coverage = gap` (auch wenn bereits Teilartikel vorliegen) sowie Mittelwert ohne Artikel mit `sentiment = null`.
 
 Plausibilitätstest am echten FinBERT-Modell mit einer Handvoll fest hinterlegter, eindeutiger Schlagzeilen: klar positive Titel (etwa eine Prognoseanhebung) müssen `sentiment > 0` und die Klasse `positive` erhalten; klar negative (etwa ein deutlicher Rückgang oder eine Untersuchung) müssen `sentiment < 0` und die Klasse `negative` erhalten.
 
@@ -259,7 +259,7 @@ Diese Punkte waren in der Abstimmung noch nicht Satz für Satz festgelegt und we
 3. Tagesschnitt ist der Kalendertag Europe/Berlin auf Basis des UTC-Dateinamens der GDELT-Datei. Der erste dargestellte Tag ist der 19. Februar 2015.
 4. Anzahl positiv, neutral und negativ folgt der FinBERT-Klasse (argmax), nicht einem Schwellenwert auf dem kontinuierlichen Wert. Die Balken verwenden nur positiv und negativ; die Linie verwendet den abgestuften Tagesmittelwert.
 5. Ähnlichkeitsschwelle für Nahduplikate ist 0,90 auf normalisierten Titeln desselben Berlin-Tages; Artikel ohne Titel werden nicht gruppiert.
-6. Alle Diagramm- und Tooltip-Anzahlen (gesamt, positiv, neutral, negativ) beziehen sich auf URL-eindeutige Artikel. Die Gesamtzahl und der Zusatzwert nach Nahduplikat-Berechnung erscheinen im Tooltip und im Kopf der Tagesliste, nicht als Balken.
+6. Die Gesamtzahl bezieht sich auf URL-eindeutige Artikel; die Klassen-Anzahlen (positiv, neutral, negativ), die Balken und der Tagesmittelwert beziehen sich auf die Artikel ohne Nahduplikate. Die Gesamtzahl und der Zusatzwert nach Nahduplikat-Berechnung erscheinen im Tooltip und im Kopf der Tagesliste, nicht als Balken.
 7. Arbeitstitel der Seite: „Nachrichten-Sentiment“.
 8. Der Erstlauf läuft lokal oder in mehreren fortsetzbaren Action-Läufen; nur der tägliche Lauf ist fest an eine GitHub Action um 06:00 Europe/Berlin gebunden.
 

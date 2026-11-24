@@ -14,11 +14,13 @@ def aggregate_daily(
 ) -> DailyRow:
     day_key = day.isoformat()
     of_day = [item for item in articles if item.day_berlin == day_key]
-    positives = [item for item in of_day if item.sentiment_label == "positive"]
-    neutrals = [item for item in of_day if item.sentiment_label == "neutral"]
-    negatives = [item for item in of_day if item.sentiment_label == "negative"]
-    missing = [item for item in of_day if item.sentiment is None]
-    scores = [item.sentiment for item in of_day if item.sentiment is not None]
+    # Klassen, Werte ohne Stimmung und Mittelwert zählen nur Nicht-Duplikate (eine Meldung je Cluster).
+    distinct = [item for item in of_day if not item.is_near_duplicate]
+    positives = [item for item in distinct if item.sentiment_label == "positive"]
+    neutrals = [item for item in distinct if item.sentiment_label == "neutral"]
+    negatives = [item for item in distinct if item.sentiment_label == "negative"]
+    missing = [item for item in distinct if item.sentiment is None]
+    scores = [item.sentiment for item in distinct if item.sentiment is not None]
     expected = set(expected_batch_ids_for_berlin_day(day))
     coverage = "complete" if expected <= processed_batch_ids else "gap"
     # "Quelle fehlt" nur, wenn jeder nicht verarbeitete Satz des Tages bei GDELT dauerhaft fehlt.
@@ -27,7 +29,7 @@ def aggregate_daily(
     return DailyRow(
         date=day_key,
         count_unique_url=len(of_day),
-        count_after_near_dup_collapse=sum(1 for item in of_day if not item.is_near_duplicate),
+        count_after_near_dup_collapse=len(distinct),
         count_positive=len(positives),
         count_neutral=len(neutrals),
         count_negative=len(negatives),

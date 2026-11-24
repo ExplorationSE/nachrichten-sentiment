@@ -15,7 +15,7 @@ test("tooltip lists counts and German sentiment", () => {
     count_unique_url: 120,
     count_positive: 45,
     count_neutral: 50,
-    count_negative: 25,
+    count_negative: 15,
     count_without_sentiment: 0,
     count_after_near_dup_collapse: 110,
     sentiment_mean: 0.18,
@@ -23,7 +23,7 @@ test("tooltip lists counts and German sentiment", () => {
   });
   assert.equal(
     text,
-    "120 Nachrichten: 45 positiv, 50 neutral, 25 negativ, Stimmung +0,18 (110 ohne Nahduplikate)"
+    "120 Nachrichten, 110 ohne Nahduplikate: 45 positiv, 50 neutral, 15 negativ, Stimmung +0,18"
   );
 });
 

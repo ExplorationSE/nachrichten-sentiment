@@ -63,6 +63,12 @@ def test_incremental_runs_equal_full_rebuild(tmp_path: Path):
     # Flags werden dauerhaft in der Monats-JSONL gespeichert.
     assert by_id["o2"]["is_near_duplicate"] is True
     assert by_id["o2"]["near_duplicate_of"] == "o1"
+    daily = json.loads((inc.site_data_dir / "nvda-daily.json").read_text(encoding="utf-8"))
+    days = {row["date"]: row for row in daily["days"]}
+    for key in ("2019-09-30", "2019-10-01"):
+        row = days[key]
+        classes = row["count_positive"] + row["count_neutral"] + row["count_negative"] + row["count_without_sentiment"]
+        assert classes == row["count_after_near_dup_collapse"] < row["count_unique_url"]
 
 
 def test_incremental_run_leaves_flags_and_files_of_other_days_untouched(tmp_path: Path):

@@ -42,13 +42,17 @@ def test_aggregate_counts_invariant_and_mean():
     processed = set(expected_batch_ids_for_berlin_day(day))
     row = aggregate_daily(articles, day, processed)
     assert row.count_unique_url == 5
-    assert row.count_positive == 2
+    # Klassen, ohne-Wert-Zahl und Mittelwert zählen nur Nicht-Duplikate (dup bleibt außen vor).
+    assert row.count_positive == 1
     assert row.count_neutral == 1
     assert row.count_negative == 1
     assert row.count_without_sentiment == 1
-    assert row.count_positive + row.count_neutral + row.count_negative + row.count_without_sentiment == row.count_unique_url
     assert row.count_after_near_dup_collapse == 4
-    assert row.sentiment_mean == pytest.approx(0.35)
+    assert (
+        row.count_positive + row.count_neutral + row.count_negative + row.count_without_sentiment
+        == row.count_after_near_dup_collapse
+    )
+    assert row.sentiment_mean == pytest.approx((0.8 + 0.0 - 0.2) / 3)
     assert row.coverage == "complete"
     assert row.date == "2015-02-19"
 
@@ -88,3 +92,20 @@ def test_gap_reason_only_when_all_unprocessed_batches_are_missing_at_source():
     assert mixed.gap_reason is None
     both = aggregate_daily([], day, processed, missing_at_source={expected[0], expected[1]})
     assert both.gap_reason == "source_missing"
+
+
+def test_near_duplicates_do_not_count_in_classes_or_mean():
+    day = date(2015, 2, 19)
+    articles = [
+        _article(gkg_record_id="stem", sentiment_label="negative", sentiment=-0.6, url_normalized="https://e.com/s"),
+        _article(gkg_record_id="d1", sentiment_label="negative", sentiment=-0.6, is_near_duplicate=True, near_duplicate_of="stem", url_normalized="https://e.com/d1"),
+        _article(gkg_record_id="d2", sentiment_label="negative", sentiment=-0.6, is_near_duplicate=True, near_duplicate_of="stem", url_normalized="https://e.com/d2"),
+        _article(gkg_record_id="pos", sentiment_label="positive", sentiment=0.4, url_normalized="https://e.com/p"),
+        _article(gkg_record_id="dx", sentiment=None, sentiment_label=None, is_near_duplicate=True, near_duplicate_of="pos", url_normalized="https://e.com/dx"),
+    ]
+    row = aggregate_daily(articles, day, set(expected_batch_ids_for_berlin_day(day)))
+    assert row.count_unique_url == 5
+    assert row.count_after_near_dup_collapse == 2
+    assert (row.count_positive, row.count_neutral, row.count_negative, row.count_without_sentiment) == (1, 0, 1, 0)
+    assert row.count_positive + row.count_neutral + row.count_negative + row.count_without_sentiment == 2
+    assert row.sentiment_mean == pytest.approx(-0.1)

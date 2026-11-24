@@ -21,6 +21,8 @@ Der Erstlauf startet bei der GKG-Datei `20150218230000` (erster Berlin-Tag: 19. 
 
 Tage ohne vollständige Quellabdeckung erscheinen im Diagramm als Lücke, nicht als Anzahl 0.
 
+Zählweise: `count_unique_url` zählt alle URL-eindeutigen Artikel eines Berlin-Tages, `count_after_near_dup_collapse` dieselben ohne Nahduplikate (Titelähnlichkeit ≥ 0,90 am selben Tag). Die Balken (positiv nach oben, negativ nach unten), die Tageszahlen positiv/neutral/negativ, `count_without_sentiment` und der Tagesmittelwert der Linie beziehen sich nur auf Artikel ohne Nahduplikate; es gilt `count_positive + count_neutral + count_negative + count_without_sentiment = count_after_near_dup_collapse`. Der Tooltip nennt beide Gesamtzahlen.
+
 Optionen für `erstlauf` und `tageslauf`:
 
 - `--luecken-erneut`: holt auch an der Quelle fehlende Sätze (GDELT antwortet mit 404) erneut ab, die älter als 7 Tage sind. Ohne diese Option werden sie nur in den ersten 7 Tagen nach ihrem Zeitstempel erneut versucht.
