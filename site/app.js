@@ -16,9 +16,13 @@ function rememberMode(mode) {
   } catch {
     // Ohne Speicherzugriff (z. B. privater Modus) bleibt die Auswahl nur in der Adresse erhalten.
   }
-  const url = new URL(window.location.href);
-  url.searchParams.set("zaehlung", mode);
-  window.history.replaceState(null, "", url);
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set("zaehlung", mode);
+    window.history.replaceState(null, "", url);
+  } catch {
+    // Manche Umgebungen (z. B. file:// oder Sandbox-iframes) verbieten das Ändern der Adresse.
+  }
 }
 
 function markModeButtons(mode) {
@@ -119,11 +123,10 @@ function attachCharts(days) {
   document.getElementById("modes").addEventListener("click", (event) => {
     const button = event.target.closest("button");
     if (!button) return;
-    const mode = resolveMode("?zaehlung=" + button.getAttribute("data-mode"), null);
+    const mode = resolveMode("", button.getAttribute("data-mode"));
     if (mode === currentMode) return;
     currentMode = mode;
     markModeButtons(mode);
-    rememberMode(mode);
     // Sichtbaren Zeitraum beim Datenwechsel beibehalten.
     const visible = barChart.timeScale().getVisibleRange();
     render(mode);
@@ -133,6 +136,8 @@ function attachCharts(days) {
     }
     if (tipDate) showTip(tipDate);
     if (openDate) updateDayHeading(openDate, byDate[openDate]);
+    // Erst nach dem Neuzeichnen merken, damit ein Speicherfehler die Anzeige nicht blockiert.
+    rememberMode(mode);
   });
 
   barChart.subscribeCrosshairMove((param) => {
