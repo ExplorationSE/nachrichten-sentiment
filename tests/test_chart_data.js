@@ -11,6 +11,10 @@ const {
   resolveMode,
   modeCounts,
   DEFAULT_MODE,
+  DEFAULT_VIEW,
+  resolveView,
+  toCandleSeries,
+  formatCandle,
 } = require("../site/chart_data.js");
 
 test("tooltip lists counts and German sentiment", () => {
@@ -290,4 +294,67 @@ test("line segment color follows the END point of each segment in both modes", (
   const ohne = toLineSeries(days, "ohne");
   // 24→25 endet bei −0,2 → rot; 25→26 endet bei 0 → grün (>= 0).
   assert.deepEqual(ohne.map((p) => p.color), [G, R, G, G, "#8b949e", R]);
+});
+
+const CANDLE_DAY = {
+  date: "2019-09-26",
+  coverage: "complete",
+  count_unique_url: 143,
+  count_after_near_dup_collapse: 71,
+  ohlc: [0.1, 0.3, -0.2, 0.05, 40],
+  ohlc_all: [0.2, 0.25, -0.4, -0.1, 52],
+};
+
+test("default chart view is the line, URL parameter beats storage", () => {
+  assert.equal(DEFAULT_VIEW, "linie");
+  assert.equal(resolveView("", null), "linie");
+  assert.equal(resolveView("?ansicht=kerzen", "linie"), "kerzen");
+  assert.equal(resolveView("?ansicht=linie", "kerzen"), "linie");
+  assert.equal(resolveView("", "kerzen"), "kerzen");
+  assert.equal(resolveView("?ansicht=quatsch&zaehlung=alle", "kaputt"), "linie");
+  assert.equal(resolveView(undefined, undefined), "linie");
+});
+
+test("candles per mode: green when close >= open, red otherwise", () => {
+  const G = "#26a69a";
+  const R = "#ef5350";
+  const ohne = toCandleSeries([CANDLE_DAY], "ohne")[0];
+  assert.deepEqual(ohne, {
+    time: "2019-09-26", open: 0.1, high: 0.3, low: -0.2, close: 0.05, color: R, borderColor: R, wickColor: R,
+  });
+  const alle = toCandleSeries([CANDLE_DAY], "alle")[0];
+  assert.equal(alle.open, 0.2);
+  assert.equal(alle.close, -0.1);
+  assert.equal(alle.color, R);
+  const up = toCandleSeries([{ ...CANDLE_DAY, ohlc: [-0.1, 0.2, -0.3, 0.1, 3] }], "ohne")[0];
+  assert.equal(up.color, G);
+  const flat = toCandleSeries([{ ...CANDLE_DAY, ohlc: [0.3, 0.3, 0.3, 0.3, 1] }], "ohne")[0];
+  assert.equal(flat.color, G); // Close = Open zählt als grün
+  assert.equal(toCandleSeries([CANDLE_DAY]).length, 1);
+  assert.equal(toCandleSeries([CANDLE_DAY])[0].open, 0.1); // Standard "ohne"
+});
+
+test("candle gaps and days without values are whitespace (no OHLC keys)", () => {
+  const gap = { ...CANDLE_DAY, date: "2019-09-27", coverage: "gap", gap_reason: "source_missing" };
+  const empty = { ...CANDLE_DAY, date: "2019-09-28", ohlc: null, ohlc_all: null };
+  const old = { date: "2019-09-29", coverage: "complete" }; // ältere Tagesdatei ohne ohlc
+  for (const mode of ["ohne", "alle"]) {
+    const series = toCandleSeries([gap, empty, old], mode);
+    assert.deepEqual(series, [{ time: "2019-09-27" }, { time: "2019-09-28" }, { time: "2019-09-29" }]);
+  }
+});
+
+test("candle tooltip lists O/H/L/C, batches and messages for the mode", () => {
+  assert.equal(
+    formatCandle(CANDLE_DAY, "ohne"),
+    "Kerze O +0,10 H +0,30 L \u22120,20 C +0,05 (40 Sätze, 71 Nachrichten)"
+  );
+  assert.equal(
+    formatCandle(CANDLE_DAY, "alle"),
+    "Kerze O +0,20 H +0,25 L \u22120,40 C \u22120,10 (52 Sätze, 143 Nachrichten)"
+  );
+  assert.equal(formatCandle({ ...CANDLE_DAY, ohlc: [0.3, 0.3, 0.3, 0.3, 1] }, "ohne"),
+    "Kerze O +0,30 H +0,30 L +0,30 C +0,30 (1 Satz, 71 Nachrichten)");
+  assert.equal(formatCandle({ ...CANDLE_DAY, ohlc: null }, "ohne"), "Kerze —");
+  assert.equal(formatCandle({ ...CANDLE_DAY, coverage: "gap" }, "ohne"), "Kerze —");
 });

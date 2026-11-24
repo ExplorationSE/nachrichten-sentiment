@@ -48,3 +48,14 @@ def test_index_has_counting_mode_switch_with_default_without_near_duplicates():
     assert "localStorage" in js
     assert "zaehlung" in js
     assert "aria-checked" in js
+
+
+def test_index_has_line_candle_view_switch_with_default_line():
+    html = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+    assert 'id="views"' in html
+    assert 'data-view="linie"' in html and ">Linie<" in html
+    assert 'data-view="kerzen"' in html and ">Kerzen<" in html
+    js = (ROOT / "site" / "app.js").read_text(encoding="utf-8")
+    assert "resolveView" in js and "addCandlestickSeries" in js
+    assert "toCandleSeries" in js and "formatCandle" in js
+    assert "ansicht" in js

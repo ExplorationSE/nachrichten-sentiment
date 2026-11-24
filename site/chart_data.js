@@ -14,6 +14,19 @@ function resolveMode(search, stored) {
   return DEFAULT_MODE;
 }
 
+// Ansichten des Stimmungsdiagramms: "linie" (Standard) oder "kerzen".
+const DEFAULT_VIEW = "linie";
+const VIEWS = ["linie", "kerzen"];
+
+function resolveView(search, stored) {
+  if (typeof search === "string" && search) {
+    const fromUrl = new URLSearchParams(search).get("ansicht");
+    if (VIEWS.includes(fromUrl)) return fromUrl;
+  }
+  if (VIEWS.includes(stored)) return stored;
+  return DEFAULT_VIEW;
+}
+
 function modeCounts(row, mode) {
   if (mode === "alle") {
     // Ältere Tagesdateien ohne *_all-Felder liefern undefined; das zeigt der Aufrufer als Lücke.
@@ -139,6 +152,37 @@ function toLineSeries(days, mode) {
   return points;
 }
 
+function candleOf(row, mode) {
+  if (row.coverage === "gap") return null;
+  const candle = mode === "alle" ? row.ohlc_all : row.ohlc;
+  return Array.isArray(candle) && candle.length === 5 ? candle : null;
+}
+
+function toCandleSeries(days, mode) {
+  return days.map((day) => {
+    const candle = candleOf(day, mode);
+    // Ohne OHLC-Werte erkennt Lightweight Charts den Tag als Lücke (Whitespace).
+    if (!candle) return { time: day.date };
+    const [open, high, low, close] = candle;
+    const color = close >= open ? "#26a69a" : "#ef5350";
+    return { time: day.date, open, high, low, close, color, borderColor: color, wickColor: color };
+  });
+}
+
+function formatCandle(row, mode) {
+  const candle = candleOf(row, mode);
+  if (!candle) return "Kerze —";
+  const [open, high, low, close, batches] = candle;
+  const messages = mode === "alle" ? row.count_unique_url : row.count_after_near_dup_collapse;
+  return (
+    "Kerze O " + formatNumber(open) +
+    " H " + formatNumber(high) +
+    " L " + formatNumber(low) +
+    " C " + formatNumber(close) +
+    " (" + batches + (batches === 1 ? " Satz, " : " Sätze, ") + messages + " Nachrichten)"
+  );
+}
+
 function pad(value) {
   return String(value).padStart(2, "0");
 }
@@ -175,5 +219,5 @@ function rangeStart(endDate, rangeKey) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { DEFAULT_MODE, MODE_LABELS, resolveMode, modeCounts, formatTooltip, gapLabel, formatSentiment, formatDayHeading, toBarSeries, toLineSeries, rangeStart, safeHref };
+  module.exports = { DEFAULT_VIEW, resolveView, toCandleSeries, formatCandle, DEFAULT_MODE, MODE_LABELS, resolveMode, modeCounts, formatTooltip, gapLabel, formatSentiment, formatDayHeading, toBarSeries, toLineSeries, rangeStart, safeHref };
 }
