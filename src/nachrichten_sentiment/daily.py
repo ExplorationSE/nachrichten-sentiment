@@ -17,6 +17,21 @@ def _class_counts(items: list[Article]) -> tuple[int, int, int, int, float | Non
     return positive, neutral, negative, without, mean
 
 
+CANDLE_DIGITS = 4
+
+
+def _candle(items: list[Article]) -> tuple[float, float, float, float, int] | None:
+    """Kerze aus den Stimmungs-Mittelwerten je 15-Minuten-Satz, chronologisch nach batch_id."""
+    by_batch: dict[str, list[float]] = {}
+    for item in items:
+        if item.sentiment is not None:
+            by_batch.setdefault(item.batch_id, []).append(item.sentiment)
+    if not by_batch:
+        return None
+    means = [round(sum(v) / len(v), CANDLE_DIGITS) for _, v in sorted(by_batch.items())]
+    return (means[0], max(means), min(means), means[-1], len(means))
+
+
 def aggregate_daily(
     articles: list[Article],
     day: date,
@@ -51,4 +66,6 @@ def aggregate_daily(
         count_negative_all=negative_all,
         count_without_sentiment_all=without_all,
         sentiment_mean_all=mean_all,
+        ohlc=_candle(distinct),
+        ohlc_all=_candle(of_day),
     )

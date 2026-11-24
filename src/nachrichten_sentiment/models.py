@@ -56,6 +56,10 @@ class DailyRow:
     count_negative_all: int = 0
     count_without_sentiment_all: int = 0
     sentiment_mean_all: Optional[float] = None
+    # Tageskerze aus den Mittelwerten je 15-Minuten-Satz (chronologisch): [Open, High, Low, Close, Anzahl Sätze mit Stimmungswert];
+    # None, wenn kein Satz des Tages einen Stimmungswert hat. ohlc ohne, ohlc_all mit Nahduplikaten.
+    ohlc: Optional[tuple[float, float, float, float, int]] = None
+    ohlc_all: Optional[tuple[float, float, float, float, int]] = None
 
 
 @dataclass(frozen=True)

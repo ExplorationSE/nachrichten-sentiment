@@ -138,3 +138,43 @@ def test_empty_day_has_no_mean_in_either_mode():
     row = aggregate_daily([], day, set(expected_batch_ids_for_berlin_day(day)))
     assert row.sentiment_mean is None and row.sentiment_mean_all is None
     assert (row.count_positive_all, row.count_neutral_all, row.count_negative_all, row.count_without_sentiment_all) == (0, 0, 0, 0)
+
+
+def test_candle_from_batch_means_in_chronological_order_for_both_modes():
+    day = date(2015, 2, 19)
+    ids = expected_batch_ids_for_berlin_day(day)
+    b0, b1, b2 = ids[3], ids[10], ids[40]
+    articles = [
+        # Reihenfolge absichtlich nicht chronologisch.
+        _article(gkg_record_id="c1", batch_id=b2, sentiment=-0.2, sentiment_label="negative", url_normalized="https://e.com/c1"),
+        _article(gkg_record_id="a1", batch_id=b0, sentiment=0.4, url_normalized="https://e.com/a1"),
+        _article(gkg_record_id="a2", batch_id=b0, sentiment=0.0, sentiment_label="neutral", url_normalized="https://e.com/a2"),
+        _article(gkg_record_id="b1", batch_id=b1, sentiment=0.6, url_normalized="https://e.com/b1"),
+        _article(gkg_record_id="b2", batch_id=b1, sentiment=-0.8, sentiment_label="negative", is_near_duplicate=True,
+                 near_duplicate_of="c1", url_normalized="https://e.com/b2"),
+        _article(gkg_record_id="x", batch_id=b2, sentiment=None, sentiment_label=None, url_normalized="https://e.com/x"),
+    ]
+    row = aggregate_daily(articles, day, set(ids))
+    # ohne Nahduplikate: Satzmittel b0=0,2  b1=0,6  b2=-0,2 → O 0,2 H 0,6 L -0,2 C -0,2; 3 Sätze
+    assert row.ohlc == pytest.approx((0.2, 0.6, -0.2, -0.2, 3))
+    # alle: b0=0,2  b1=(0,6-0,8)/2=-0,1  b2=-0,2 → O 0,2 H 0,2 L -0,2 C -0,2
+    assert row.ohlc_all == pytest.approx((0.2, 0.2, -0.2, -0.2, 3))
+
+
+def test_candle_single_batch_is_flat_and_empty_day_has_none():
+    day = date(2015, 2, 19)
+    ids = expected_batch_ids_for_berlin_day(day)
+    one = aggregate_daily([_article(batch_id=ids[5], sentiment=0.3)], day, set(ids))
+    assert one.ohlc == pytest.approx((0.3, 0.3, 0.3, 0.3, 1))
+    assert one.ohlc_all == pytest.approx((0.3, 0.3, 0.3, 0.3, 1))
+    empty = aggregate_daily([], day, set(ids))
+    assert empty.ohlc is None and empty.ohlc_all is None
+    only_missing = aggregate_daily([_article(batch_id=ids[5], sentiment=None, sentiment_label=None)], day, set(ids))
+    assert only_missing.ohlc is None
+
+
+def test_candle_values_are_rounded_compactly():
+    day = date(2015, 2, 19)
+    ids = expected_batch_ids_for_berlin_day(day)
+    row = aggregate_daily([_article(batch_id=ids[0], sentiment=0.123456789)], day, set(ids))
+    assert row.ohlc == (0.1235, 0.1235, 0.1235, 0.1235, 1)
