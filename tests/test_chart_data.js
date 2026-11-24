@@ -264,3 +264,30 @@ test("day heading names the active mode", () => {
     "Schlagzeilen 2019-09-26 — 120 Nachrichten, 71 ohne Nahduplikate (Ansicht: ohne Nahduplikate)"
   );
 });
+
+test("line segment color follows the END point of each segment in both modes", () => {
+  // Lightweight Charts färbt den Abschnitt von Punkt i nach i+1 mit der Farbe von Punkt i;
+  // deshalb trägt Punkt i die Farbe seines Endpunkts i+1.
+  const mk = (date, ohne, alle, coverage = "complete") => ({
+    date, coverage, sentiment_mean: ohne, sentiment_mean_all: alle,
+    count_positive: 0, count_negative: 0, count_positive_all: 0, count_negative_all: 0,
+  });
+  const days = [
+    mk("2019-09-23", 0.112, -0.031),
+    mk("2019-09-24", 0.125, 0.092),
+    mk("2019-09-25", -0.2, 0.036),
+    mk("2019-09-26", 0.0, -0.116),
+    mk("2019-09-27", null, null, "gap"),
+    mk("2019-09-28", -0.3, 0.064),
+  ];
+  const G = "#26a69a";
+  const R = "#ef5350";
+  const alle = toLineSeries(days, "alle");
+  assert.deepEqual(alle.map((p) => p.value), [-0.031, 0.092, 0.036, -0.116, null, 0.064]);
+  // 23→24 endet bei +0,092 → grün; 24→25 grün; 25→26 endet negativ → rot;
+  // 26 vor einer Lücke und der letzte Punkt behalten ihre eigene Farbe.
+  assert.deepEqual(alle.map((p) => p.color), [G, G, R, R, "#8b949e", G]);
+  const ohne = toLineSeries(days, "ohne");
+  // 24→25 endet bei −0,2 → rot; 25→26 endet bei 0 → grün (>= 0).
+  assert.deepEqual(ohne.map((p) => p.color), [G, R, G, G, "#8b949e", R]);
+});

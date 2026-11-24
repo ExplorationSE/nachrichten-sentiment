@@ -117,18 +117,26 @@ function toBarSeries(days, mode) {
   return { up, down };
 }
 
+function signColor(value) {
+  return value >= 0 ? "#26a69a" : "#ef5350";
+}
+
 function toLineSeries(days, mode) {
-  return days.map((day) => {
+  const points = days.map((day) => {
     const mean = modeCounts(day, mode).mean;
     if (day.coverage === "gap" || mean === null || mean === undefined) {
       return { time: day.date, value: null, color: "#8b949e" };
     }
-    return {
-      time: day.date,
-      value: mean,
-      color: mean >= 0 ? "#26a69a" : "#ef5350",
-    };
+    return { time: day.date, value: mean, color: signColor(mean) };
   });
+  // Lightweight Charts färbt den Abschnitt i→i+1 mit der Farbe von Punkt i. Damit sich jeder
+  // Abschnitt nach seinem Endpunkt richtet, übernimmt Punkt i die Farbe des Folgepunkts.
+  // Vor einer Lücke und am Ende gibt es keinen Abschnitt; dort bleibt die eigene Farbe.
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const next = points[i + 1];
+    if (points[i].value !== null && next.value !== null) points[i].color = signColor(next.value);
+  }
+  return points;
 }
 
 function pad(value) {
