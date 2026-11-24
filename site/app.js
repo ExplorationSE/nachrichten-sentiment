@@ -1,5 +1,37 @@
 "use strict";
 
+const MODE_STORAGE_KEY = "nachrichten-sentiment.zaehlung";
+
+function readStoredMode() {
+  try {
+    return window.localStorage.getItem(MODE_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function rememberMode(mode) {
+  try {
+    window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+  } catch {
+    // Ohne Speicherzugriff (z. B. privater Modus) bleibt die Auswahl nur in der Adresse erhalten.
+  }
+  const url = new URL(window.location.href);
+  url.searchParams.set("zaehlung", mode);
+  window.history.replaceState(null, "", url);
+}
+
+function markModeButtons(mode) {
+  document.querySelectorAll("#modes button").forEach((el) => {
+    const active = el.getAttribute("data-mode") === mode;
+    el.classList.toggle("on", active);
+    el.setAttribute("aria-checked", active ? "true" : "false");
+  });
+}
+
+let currentMode = resolveMode(window.location.search, readStoredMode());
+let openDate = null;
+
 async function loadDaily() {
   const response = await fetch("data/nvda-daily.json");
   if (!response.ok) throw new Error("load failed");
@@ -57,23 +89,51 @@ function attachCharts(days) {
   const up = barChart.addHistogramSeries({ color: "#26a69a", priceFormat: { type: "volume" } });
   const down = barChart.addHistogramSeries({ color: "#ef5350", priceFormat: { type: "volume" } });
   const line = lineChart.addLineSeries({ color: "#e6edf3", priceLineVisible: true });
-  const bars = toBarSeries(days);
-  const linePoints = toLineSeries(days);
-  up.setData(bars.up);
-  down.setData(bars.down);
-  line.setData(
-    linePoints.map((p) =>
-      p.value === null || p.value === undefined
-        ? { time: p.time }
-        : { time: p.time, value: p.value, color: p.color }
-    )
-  );
   const byDate = Object.fromEntries(days.map((d) => [d.date, d]));
+  let tipDate = null;
+
+  function render(mode) {
+    // Lücken bleiben in beiden Zählweisen Whitespace-Punkte ohne value.
+    const bars = toBarSeries(days, mode);
+    const linePoints = toLineSeries(days, mode);
+    up.setData(bars.up);
+    down.setData(bars.down);
+    line.setData(
+      linePoints.map((p) =>
+        p.value === null || p.value === undefined
+          ? { time: p.time }
+          : { time: p.time, value: p.value, color: p.color }
+      )
+    );
+  }
 
   function showTip(date) {
+    tipDate = date;
     const row = byDate[date];
-    tooltip.textContent = row ? formatTooltip(row) : "";
+    tooltip.textContent = row ? formatTooltip(row, currentMode) : "";
   }
+
+  render(currentMode);
+  markModeButtons(currentMode);
+
+  document.getElementById("modes").addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    const mode = resolveMode("?zaehlung=" + button.getAttribute("data-mode"), null);
+    if (mode === currentMode) return;
+    currentMode = mode;
+    markModeButtons(mode);
+    rememberMode(mode);
+    // Sichtbaren Zeitraum beim Datenwechsel beibehalten.
+    const visible = barChart.timeScale().getVisibleRange();
+    render(mode);
+    if (visible) {
+      barChart.timeScale().setVisibleRange(visible);
+      lineChart.timeScale().setVisibleRange(visible);
+    }
+    if (tipDate) showTip(tipDate);
+    if (openDate) updateDayHeading(openDate, byDate[openDate]);
+  });
 
   barChart.subscribeCrosshairMove((param) => {
     if (param && param.time) showTip(param.time);
@@ -100,6 +160,11 @@ function attachCharts(days) {
   lineChart.timeScale().fitContent();
 }
 
+function updateDayHeading(date, row) {
+  const heading = document.querySelector("#headlines h2");
+  if (heading) heading.textContent = formatDayHeading(date, row, currentMode);
+}
+
 async function openDay(date, row) {
   const root = document.getElementById("headlines");
   const month = date.slice(0, 7);
@@ -121,8 +186,9 @@ async function openDay(date, row) {
   });
   root.replaceChildren();
   const heading = document.createElement("h2");
-  heading.textContent = formatDayHeading(date, row);
+  heading.textContent = formatDayHeading(date, row, currentMode);
   root.appendChild(heading);
+  openDate = date;
   for (const group of grouped) {
     appendHeadline(root, group.stem, true);
     for (const child of group.children) {

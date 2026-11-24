@@ -8,6 +8,9 @@ const {
   safeHref,
   formatSentiment,
   formatDayHeading,
+  resolveMode,
+  modeCounts,
+  DEFAULT_MODE,
 } = require("../site/chart_data.js");
 
 test("tooltip lists counts and German sentiment", () => {
@@ -165,4 +168,99 @@ test("day heading shows unique and collapsed counts and gap label", () => {
     "Schlagzeilen 2019-09-23 (Quelle fehlt (GDELT)) — 1 Nachrichten, 1 ohne Nahduplikate"
   );
   assert.equal(formatDayHeading("2019-09-25", undefined), "Schlagzeilen 2019-09-25");
+});
+
+const BOTH = {
+  date: "2019-09-26",
+  count_unique_url: 120,
+  count_after_near_dup_collapse: 71,
+  count_positive: 18,
+  count_neutral: 43,
+  count_negative: 10,
+  count_without_sentiment: 0,
+  sentiment_mean: 0.108,
+  count_positive_all: 30,
+  count_neutral_all: 70,
+  count_negative_all: 19,
+  count_without_sentiment_all: 1,
+  sentiment_mean_all: -0.05,
+  coverage: "complete",
+};
+
+test("default counting mode is without near-duplicates", () => {
+  assert.equal(DEFAULT_MODE, "ohne");
+  assert.equal(resolveMode("", null), "ohne");
+});
+
+test("mode comes from URL parameter first, then storage, invalid values fall back", () => {
+  assert.equal(resolveMode("?zaehlung=alle", "ohne"), "alle");
+  assert.equal(resolveMode("?zaehlung=ohne", "alle"), "ohne");
+  assert.equal(resolveMode("", "alle"), "alle");
+  assert.equal(resolveMode("?zaehlung=quatsch", "alle"), "alle");
+  assert.equal(resolveMode("?zaehlung=quatsch", "kaputt"), "ohne");
+  assert.equal(resolveMode(undefined, undefined), "ohne");
+});
+
+test("modeCounts picks class counts and mean for the chosen mode", () => {
+  assert.deepEqual(modeCounts(BOTH, "ohne"), {
+    positive: 18, neutral: 43, negative: 10, without: 0, mean: 0.108, total: 71,
+  });
+  assert.deepEqual(modeCounts(BOTH, "alle"), {
+    positive: 30, neutral: 70, negative: 19, without: 1, mean: -0.05, total: 120,
+  });
+});
+
+test("bars and line switch with the mode, colors follow the sign", () => {
+  const gap = { date: "2019-09-27", count_positive: 0, count_negative: 0, count_positive_all: 0,
+    count_negative_all: 0, sentiment_mean: null, sentiment_mean_all: null, coverage: "gap" };
+  const ohne = toBarSeries([BOTH, gap], "ohne");
+  assert.equal(ohne.up[0].value, 18);
+  assert.equal(ohne.down[0].value, -10);
+  const alle = toBarSeries([BOTH, gap], "alle");
+  assert.equal(alle.up[0].value, 30);
+  assert.equal(alle.down[0].value, -19);
+  // Lücken bleiben in beiden Modi Whitespace ohne value.
+  for (const bars of [ohne, alle]) {
+    assert.deepEqual(bars.up[1], { time: "2019-09-27" });
+    assert.deepEqual(bars.down[1], { time: "2019-09-27" });
+  }
+  assert.equal(toLineSeries([BOTH], "ohne")[0].color, "#26a69a");
+  const lineAll = toLineSeries([BOTH, gap], "alle");
+  assert.equal(lineAll[0].value, -0.05);
+  assert.equal(lineAll[0].color, "#ef5350");
+  assert.equal(lineAll[1].value, null);
+  // Ohne Modusangabe gilt der Standard "ohne".
+  assert.equal(toBarSeries([BOTH]).up[0].value, 18);
+});
+
+test("all mode on old data without _all fields shows gaps instead of wrong numbers", () => {
+  const old = { date: "2019-09-26", count_positive: 5, count_negative: 2, sentiment_mean: 0.1, coverage: "complete" };
+  assert.deepEqual(toBarSeries([old], "alle").up[0], { time: "2019-09-26" });
+  assert.deepEqual(toBarSeries([old], "alle").down[0], { time: "2019-09-26" });
+  assert.equal(toLineSeries([old], "alle")[0].value, null);
+});
+
+test("tooltip numbers switch with the mode", () => {
+  assert.equal(
+    formatTooltip(BOTH, "ohne"),
+    "120 Nachrichten, 71 ohne Nahduplikate: 18 positiv, 43 neutral, 10 negativ, Stimmung +0,11"
+  );
+  assert.equal(
+    formatTooltip(BOTH, "alle"),
+    "120 Nachrichten inkl. Nahduplikate (71 ohne): 30 positiv, 70 neutral, 19 negativ, Stimmung \u22120,05, 1 ohne Wert"
+  );
+  assert.equal(formatTooltip(BOTH), formatTooltip(BOTH, "ohne"));
+  const gap = { ...BOTH, coverage: "gap", gap_reason: "source_missing" };
+  assert.match(formatTooltip(gap, "alle"), /^Quelle fehlt \(GDELT\) — 120 Nachrichten inkl\. Nahduplikate/);
+});
+
+test("day heading names the active mode", () => {
+  assert.equal(
+    formatDayHeading("2019-09-26", BOTH, "alle"),
+    "Schlagzeilen 2019-09-26 — 120 Nachrichten, 71 ohne Nahduplikate (Ansicht: alle Nachrichten)"
+  );
+  assert.equal(
+    formatDayHeading("2019-09-26", BOTH, "ohne"),
+    "Schlagzeilen 2019-09-26 — 120 Nachrichten, 71 ohne Nahduplikate (Ansicht: ohne Nahduplikate)"
+  );
 });

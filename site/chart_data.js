@@ -1,5 +1,41 @@
 "use strict";
 
+// Zählweisen: "ohne" = ohne Nahduplikate (Standard), "alle" = alle Nachrichten inkl. Nahduplikate.
+const DEFAULT_MODE = "ohne";
+const MODES = ["ohne", "alle"];
+const MODE_LABELS = { ohne: "ohne Nahduplikate", alle: "alle Nachrichten" };
+
+function resolveMode(search, stored) {
+  if (typeof search === "string" && search) {
+    const fromUrl = new URLSearchParams(search).get("zaehlung");
+    if (MODES.includes(fromUrl)) return fromUrl;
+  }
+  if (MODES.includes(stored)) return stored;
+  return DEFAULT_MODE;
+}
+
+function modeCounts(row, mode) {
+  if (mode === "alle") {
+    // Ältere Tagesdateien ohne *_all-Felder liefern undefined; das zeigt der Aufrufer als Lücke.
+    return {
+      positive: row.count_positive_all,
+      neutral: row.count_neutral_all,
+      negative: row.count_negative_all,
+      without: row.count_without_sentiment_all,
+      mean: row.sentiment_mean_all,
+      total: row.count_unique_url,
+    };
+  }
+  return {
+    positive: row.count_positive,
+    neutral: row.count_neutral,
+    negative: row.count_negative,
+    without: row.count_without_sentiment,
+    mean: row.sentiment_mean,
+    total: row.count_after_near_dup_collapse,
+  };
+}
+
 function formatNumber(value) {
   const sign = value > 0 ? "+" : value < 0 ? "\u2212" : "";
   const abs = Math.abs(value);
@@ -11,29 +47,35 @@ function gapLabel(row) {
   return row.gap_reason === "source_missing" ? "Quelle fehlt (GDELT)" : "unvollständig";
 }
 
-function formatTooltip(row) {
+function formatTooltip(row, mode) {
   const label = gapLabel(row);
   const gapPrefix = label ? label + " — " : "";
-  // Klassen und Stimmung beziehen sich auf die Meldungen ohne Nahduplikate.
-  const distinct =
-    row.count_after_near_dup_collapse !== undefined
-      ? ", " + row.count_after_near_dup_collapse + " ohne Nahduplikate"
-      : "";
-  let text =
-    gapPrefix +
-    row.count_unique_url +
-    " Nachrichten" +
-    distinct +
+  const counts = modeCounts(row, mode);
+  let text = gapPrefix + row.count_unique_url + " Nachrichten";
+  if (mode === "alle") {
+    // Klassen und Stimmung beziehen sich auf alle Nachrichten inkl. Nahduplikate.
+    text += " inkl. Nahduplikate";
+    if (row.count_after_near_dup_collapse !== undefined) {
+      text += " (" + row.count_after_near_dup_collapse + " ohne)";
+    }
+  } else if (row.count_after_near_dup_collapse !== undefined) {
+    // Klassen und Stimmung beziehen sich auf die Meldungen ohne Nahduplikate.
+    text += ", " + row.count_after_near_dup_collapse + " ohne Nahduplikate";
+  }
+  if (counts.positive === undefined) {
+    return text + ": Werte für diese Zählweise fehlen";
+  }
+  text +=
     ": " +
-    row.count_positive +
+    counts.positive +
     " positiv, " +
-    row.count_neutral +
+    counts.neutral +
     " neutral, " +
-    row.count_negative +
+    counts.negative +
     " negativ";
-  text += ", Stimmung " + formatSentiment(row.sentiment_mean);
-  if (row.count_without_sentiment > 0) {
-    text += ", " + row.count_without_sentiment + " ohne Wert";
+  text += ", Stimmung " + formatSentiment(counts.mean);
+  if (counts.without > 0) {
+    text += ", " + counts.without + " ohne Wert";
   }
   return text;
 }
@@ -43,7 +85,7 @@ function formatSentiment(value) {
   return formatNumber(value);
 }
 
-function formatDayHeading(date, row) {
+function formatDayHeading(date, row, mode) {
   let text = "Schlagzeilen " + date;
   if (!row) return text;
   const label = gapLabel(row);
@@ -54,34 +96,37 @@ function formatDayHeading(date, row) {
     " Nachrichten, " +
     row.count_after_near_dup_collapse +
     " ohne Nahduplikate";
+  if (MODE_LABELS[mode]) text += " (Ansicht: " + MODE_LABELS[mode] + ")";
   return text;
 }
 
-function toBarSeries(days) {
+function toBarSeries(days, mode) {
   const up = [];
   const down = [];
   for (const day of days) {
-    if (day.coverage === "gap") {
+    const counts = modeCounts(day, mode);
+    if (day.coverage === "gap" || counts.positive === undefined || counts.negative === undefined) {
       // Ohne value erkennt Lightweight Charts den Tag als Lücke (Whitespace), nicht als 0.
       up.push({ time: day.date });
       down.push({ time: day.date });
       continue;
     }
-    up.push({ time: day.date, value: day.count_positive });
-    down.push({ time: day.date, value: -day.count_negative });
+    up.push({ time: day.date, value: counts.positive });
+    down.push({ time: day.date, value: -counts.negative });
   }
   return { up, down };
 }
 
-function toLineSeries(days) {
+function toLineSeries(days, mode) {
   return days.map((day) => {
-    if (day.coverage === "gap" || day.sentiment_mean === null || day.sentiment_mean === undefined) {
+    const mean = modeCounts(day, mode).mean;
+    if (day.coverage === "gap" || mean === null || mean === undefined) {
       return { time: day.date, value: null, color: "#8b949e" };
     }
     return {
       time: day.date,
-      value: day.sentiment_mean,
-      color: day.sentiment_mean >= 0 ? "#26a69a" : "#ef5350",
+      value: mean,
+      color: mean >= 0 ? "#26a69a" : "#ef5350",
     };
   });
 }
@@ -122,5 +167,5 @@ function rangeStart(endDate, rangeKey) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-  module.exports = { formatTooltip, gapLabel, formatSentiment, formatDayHeading, toBarSeries, toLineSeries, rangeStart, safeHref };
+  module.exports = { DEFAULT_MODE, MODE_LABELS, resolveMode, modeCounts, formatTooltip, gapLabel, formatSentiment, formatDayHeading, toBarSeries, toLineSeries, rangeStart, safeHref };
 }

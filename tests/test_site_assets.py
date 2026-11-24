@@ -35,3 +35,16 @@ def test_app_builds_headlines_safely_and_handles_load_errors():
     assert "safeHref" in js
     assert "noopener noreferrer" in js
     assert "Daten konnten nicht geladen werden." in js
+
+
+def test_index_has_counting_mode_switch_with_default_without_near_duplicates():
+    html = (ROOT / "site" / "index.html").read_text(encoding="utf-8")
+    assert 'id="modes"' in html
+    assert 'data-mode="alle"' in html and "Alle Nachrichten" in html
+    assert 'data-mode="ohne"' in html and "Ohne Nahduplikate" in html
+    assert 'role="radiogroup"' in html
+    js = (ROOT / "site" / "app.js").read_text(encoding="utf-8")
+    assert "resolveMode" in js
+    assert "localStorage" in js
+    assert "zaehlung" in js
+    assert "aria-checked" in js

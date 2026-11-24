@@ -109,3 +109,32 @@ def test_near_duplicates_do_not_count_in_classes_or_mean():
     assert (row.count_positive, row.count_neutral, row.count_negative, row.count_without_sentiment) == (1, 0, 1, 0)
     assert row.count_positive + row.count_neutral + row.count_negative + row.count_without_sentiment == 2
     assert row.sentiment_mean == pytest.approx(-0.1)
+
+
+def test_row_carries_both_counting_modes_with_and_without_near_duplicates():
+    day = date(2015, 2, 19)
+    articles = [
+        _article(gkg_record_id="stem", sentiment_label="negative", sentiment=-0.6, url_normalized="https://e.com/s"),
+        _article(gkg_record_id="d1", sentiment_label="negative", sentiment=-0.6, is_near_duplicate=True, near_duplicate_of="stem", url_normalized="https://e.com/d1"),
+        _article(gkg_record_id="d2", sentiment_label="neutral", sentiment=0.0, is_near_duplicate=True, near_duplicate_of="stem", url_normalized="https://e.com/d2"),
+        _article(gkg_record_id="pos", sentiment_label="positive", sentiment=0.4, url_normalized="https://e.com/p"),
+        _article(gkg_record_id="dx", sentiment=None, sentiment_label=None, is_near_duplicate=True, near_duplicate_of="pos", url_normalized="https://e.com/dx"),
+    ]
+    row = aggregate_daily(articles, day, set(expected_batch_ids_for_berlin_day(day)))
+    # Modus "ohne Nahduplikate" (Standard): unverändert.
+    assert (row.count_positive, row.count_neutral, row.count_negative, row.count_without_sentiment) == (1, 0, 1, 0)
+    assert row.sentiment_mean == pytest.approx(-0.1)
+    # Modus "alle Nachrichten": jede URL-eindeutige Meldung zählt.
+    assert (row.count_positive_all, row.count_neutral_all, row.count_negative_all, row.count_without_sentiment_all) == (1, 1, 2, 1)
+    assert (
+        row.count_positive_all + row.count_neutral_all + row.count_negative_all + row.count_without_sentiment_all
+        == row.count_unique_url
+    )
+    assert row.sentiment_mean_all == pytest.approx((-0.6 - 0.6 + 0.0 + 0.4) / 4)
+
+
+def test_empty_day_has_no_mean_in_either_mode():
+    day = date(2015, 2, 19)
+    row = aggregate_daily([], day, set(expected_batch_ids_for_berlin_day(day)))
+    assert row.sentiment_mean is None and row.sentiment_mean_all is None
+    assert (row.count_positive_all, row.count_neutral_all, row.count_negative_all, row.count_without_sentiment_all) == (0, 0, 0, 0)

@@ -69,6 +69,11 @@ def test_incremental_runs_equal_full_rebuild(tmp_path: Path):
         row = days[key]
         classes = row["count_positive"] + row["count_neutral"] + row["count_negative"] + row["count_without_sentiment"]
         assert classes == row["count_after_near_dup_collapse"] < row["count_unique_url"]
+        classes_all = (
+            row["count_positive_all"] + row["count_neutral_all"] + row["count_negative_all"]
+            + row["count_without_sentiment_all"]
+        )
+        assert classes_all == row["count_unique_url"]
 
 
 def test_incremental_run_leaves_flags_and_files_of_other_days_untouched(tmp_path: Path):
@@ -92,6 +97,29 @@ def test_incremental_run_leaves_flags_and_files_of_other_days_untouched(tmp_path
     days = {row["date"]: row for row in daily["days"]}
     assert days["2019-09-30"]["count_after_near_dup_collapse"] == 1  # aus gespeicherten Flags
     assert days["2019-10-01"]["count_after_near_dup_collapse"] == 2
+
+
+def test_incremental_run_upgrades_old_daily_file_without_all_mode_fields(tmp_path: Path):
+    paths = ProjectPaths(tmp_path)
+    run_batches(SEP, **_kwargs(paths))
+    daily_file = paths.site_data_dir / "nvda-daily.json"
+    old = json.loads(daily_file.read_text(encoding="utf-8"))
+    for row in old["days"]:
+        for key in [k for k in row if k.endswith("_all")]:
+            del row[key]  # Stand vor Einführung des Umschalters
+    daily_file.write_text(json.dumps(old, separators=(",", ":")), encoding="utf-8")
+
+    run_batches(OCT, **_kwargs(paths))
+
+    text = daily_file.read_text(encoding="utf-8")
+    assert "\n" not in text and ": " not in text  # kompaktes JSON
+    days = {row["date"]: row for row in json.loads(text)["days"]}
+    # Alle Tage (auch der nicht neu verarbeitete 30.09.) tragen beide Zählweisen.
+    for row in days.values():
+        for key in ("count_positive_all", "count_neutral_all", "count_negative_all",
+                    "count_without_sentiment_all", "sentiment_mean_all"):
+            assert key in row
+    assert days["2019-09-30"]["count_positive_all"] == days["2019-09-30"]["count_unique_url"] == 3
 
 
 def test_mark_near_duplicates_compares_only_within_day_and_matches_reference():

@@ -50,6 +50,12 @@ class DailyRow:
     sentiment_mean: Optional[float]
     coverage: Coverage
     gap_reason: Optional[GapReason] = None
+    # Zählweise "alle Nachrichten": dieselben Größen über alle URL-eindeutigen Artikel inkl. Nahduplikate.
+    count_positive_all: int = 0
+    count_neutral_all: int = 0
+    count_negative_all: int = 0
+    count_without_sentiment_all: int = 0
+    sentiment_mean_all: Optional[float] = None
 
 
 @dataclass(frozen=True)
