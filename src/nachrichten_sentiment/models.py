@@ -78,5 +78,7 @@ class ProgressState:
     missing_at_source: list[str] = field(default_factory=list)
     # Berlin-Tage verarbeiteter Sätze, deren Ausgaben noch nicht neu aufgebaut wurden (übersteht Abbrüche).
     pending_rebuild_days: list[str] = field(default_factory=list)
+    # Übersprungene Bereiche [[erster, letzter Satz]] eines späteren Starts (erstlauf --start), zum Nachholen.
+    deferred_ranges: list[list[str]] = field(default_factory=list)
     # Schlüssel aus failed_title_fetches, die bereits in failed_titles.jsonl stehen (nur Laufzeit).
     persisted_failed_titles: set[str] = field(default_factory=set, repr=False, compare=False)

@@ -9,6 +9,7 @@ from nachrichten_sentiment.fileutil import atomic_write_text, repair_partial_las
 from nachrichten_sentiment.models import ProgressState
 from nachrichten_sentiment.timeutil import (
     FIRST_BATCH_ID,
+    batch_id_from_datetime,
     berlin_day_from_batch_id,
     datetime_from_batch_id,
     iter_batch_ids,
@@ -54,6 +55,7 @@ def load_progress(path: Path) -> ProgressState:
         successful_spans=[list(span) for span in raw.get("successful_spans", [])],
         missing_at_source=list(raw.get("missing_at_source", [])),
         pending_rebuild_days=list(raw.get("pending_rebuild_days", [])),
+        deferred_ranges=[list(span) for span in raw.get("deferred_ranges", [])],
         persisted_failed_titles=set(from_file),
     )
 
@@ -82,6 +84,7 @@ def save_progress(path: Path, state: ProgressState) -> None:
                 "successful_spans": state.successful_spans,
                 "missing_at_source": state.missing_at_source,
                 "pending_rebuild_days": state.pending_rebuild_days,
+                "deferred_ranges": state.deferred_ranges,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -163,11 +166,39 @@ def processed_batch_ids(state: ProgressState) -> set[str]:
     return ids
 
 
+def _previous_batch_id(batch_id: str) -> str:
+    return batch_id_from_datetime(datetime_from_batch_id(batch_id) - timedelta(minutes=15))
+
+
+def _next_expected(state: ProgressState) -> str:
+    return FIRST_BATCH_ID if state.cursor_batch_id is None else next_batch_id(state.cursor_batch_id)
+
+
+def defer_until(state: ProgressState, start_id: str) -> None:
+    """Merkt den Bereich zwischen bisherigem Cursor und einem späteren Start zum Nachholen vor."""
+    first = _next_expected(state)
+    if start_id <= first:
+        return  # kein Sprung (z. B. Wiederaufnahme eines bereits begonnenen späteren Starts)
+    last = _previous_batch_id(start_id)
+    for span in state.deferred_ranges:
+        if span[0] <= first and last <= span[1]:
+            return
+    state.deferred_ranges.append([first, last])
+    state.deferred_ranges.sort()
+
+
+def deferred_batches(state: ProgressState, span: list[str]) -> list[str]:
+    """Noch nicht erledigte Sätze eines vorgemerkten Bereichs (erfolgreich oder 404 gelten als erledigt)."""
+    done = processed_batch_ids(state) | set(state.missing_at_source)
+    return [batch_id for batch_id in iter_batch_ids(span[0], span[1]) if batch_id not in done]
+
+
 def batches_to_process(
     state: ProgressState,
     until_id: str,
     now: datetime | None = None,
     retry_missing: bool = False,
+    start_id: str | None = None,
 ) -> list[str]:
     """Offene Lücken, an der Quelle fehlende Sätze (nur jung oder auf Wunsch) und neue Sätze bis until_id."""
     current = now or datetime.now(timezone.utc)
@@ -182,7 +213,10 @@ def batches_to_process(
         if batch_id <= until_id and batch_id not in seen:
             pending.append(batch_id)
             seen.add(batch_id)
-    start = FIRST_BATCH_ID if state.cursor_batch_id is None else next_batch_id(state.cursor_batch_id)
+    start = _next_expected(state)
+    if start_id is not None and start_id > start:
+        # Späterer Start: ab start_id; liegt der Cursor schon dahinter (Wiederaufnahme), ab dem Cursor.
+        start = start_id
     if start <= until_id:
         for batch_id in iter_batch_ids(start, until_id):
             if batch_id not in seen:

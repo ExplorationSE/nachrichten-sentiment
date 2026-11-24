@@ -29,6 +29,9 @@ Optionen für `erstlauf` und `tageslauf`:
 
 - `--luecken-erneut`: holt auch an der Quelle fehlende Sätze (GDELT antwortet mit 404) erneut ab, die älter als 7 Tage sind. Ohne diese Option werden sie nur in den ersten 7 Tagen nach ihrem Zeitstempel erneut versucht.
 - `--voll-neuaufbau`: berechnet Nahduplikate, Monatsdateien und Schlagzeilen für alle Tage neu. Ohne die Option geschieht das nur für die Berlin-Tage der in diesem Lauf verarbeiteten Sätze.
+- `erstlauf --start YYYYMMDDHHMMSS`: sammelt erst ab diesem 15-Minuten-Satz (UTC), zum Beispiel `--start 20200101000000`. Der übersprungene Bereich zwischen bisherigem Stand und Start wird in `progress.json` unter `deferred_ranges` vorgemerkt; die Tage darin erscheinen bis dahin als Lücke. Ein erneuter Aufruf mit demselben `--start` setzt nach einem Abbruch fort.
+- `erstlauf --nachholen`: arbeitet die vorgemerkten Bereiche ab (bereits fertige Sätze und GDELT-404 werden übersprungen) und entfernt einen Bereich erst, wenn er vollständig durchlaufen ist; bei Abbruch einfach erneut starten.
+- Startansicht der Seite: Liegt vor den Daten eine lange Lücke (mindestens 90 Tage, etwa ein noch nicht nachgeholter Bereich), beginnt die Anzeige nach dieser Lücke; „Maximum“ zeigt alles.
 - `--parallel N` (Standard 8): lädt, entpackt und filtert bis zu N Sätze gleichzeitig vor (echte Downloads in eigenen Prozessen). Übernommen werden die Sätze strikt in zeitlicher Reihenfolge; der Fortschritt (`cursor_batch_id`) rückt nur bis zum letzten lückenlos fertigen Satz vor, ein Abbruch (Strg+C oder SIGTERM) hinterlässt keine Lücke und der nächste Lauf setzt dort fort. `--parallel 1` verarbeitet nacheinander wie bisher. Etwa alle 96 Sätze erscheint eine Fortschrittszeile mit Satz, Anzahl und s/Satz.
 - Titelabruf: Scheitert eine `http://`-Adresse (etwa weil ein Proxy unverschlüsseltes HTTP blockiert), wird dieselbe Adresse einmal per `https://` versucht.
 

@@ -19,6 +19,8 @@ from nachrichten_sentiment.paths import ProjectPaths
 from nachrichten_sentiment.progress import (
     append_gap_log,
     batches_to_process,
+    defer_until,
+    deferred_batches,
     load_progress,
     mark_gap,
     mark_missing_at_source,
@@ -383,11 +385,16 @@ def run_initial(
     retry_missing: bool = False,
     full_rebuild: bool = False,
     workers: int = 1,
+    start_id: str | None = None,
 ) -> None:
     progress = load_progress(paths.progress_path)
     target = until_id or _latest_published_batch_id()
+    if start_id is not None:
+        # Übersprungenen Bereich sofort vormerken, damit er auch nach einem frühen Abbruch nachholbar bleibt.
+        defer_until(progress, start_id)
+        save_progress(paths.progress_path, progress)
     run_batches(
-        batches_to_process(progress, target, retry_missing=retry_missing),
+        batches_to_process(progress, target, retry_missing=retry_missing, start_id=start_id),
         company=company,
         paths=paths,
         model=model,
@@ -397,6 +404,36 @@ def run_initial(
         full_rebuild=full_rebuild,
         workers=workers,
     )
+
+
+def run_deferred(
+    paths: ProjectPaths,
+    company: CompanyConfig,
+    model: SentimentModel | None,
+    title_opener,
+    fetcher=None,
+    extract_zip=None,
+    full_rebuild: bool = False,
+    workers: int = 1,
+) -> None:
+    """Holt vorgemerkte Bereiche (erstlauf --start) nach; fertige Sätze werden übersprungen."""
+    for span in list(load_progress(paths.progress_path).deferred_ranges):
+        progress = load_progress(paths.progress_path)
+        run_batches(
+            deferred_batches(progress, span),
+            company=company,
+            paths=paths,
+            model=model,
+            title_opener=title_opener,
+            fetcher=fetcher,
+            extract_zip=extract_zip,
+            full_rebuild=full_rebuild,
+            workers=workers,
+        )
+        # Erst nach vollständigem Durchlauf aus der Vormerkung entfernen.
+        progress = load_progress(paths.progress_path)
+        progress.deferred_ranges = [item for item in progress.deferred_ranges if item != span]
+        save_progress(paths.progress_path, progress)
 
 
 def run_daily(
