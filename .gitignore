@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+dist/
+data/tmp/
+.hf-cache/
+/probe/
+tests/tmp-fixtures/

@@ -1,0 +1,8 @@
+{
+  "NVDA": {
+    "ticker": "NVDA",
+    "display_name": "Nvidia",
+    "name_substrings": ["nvidia"],
+    "ticker_word": "nvda"
+  }
+}

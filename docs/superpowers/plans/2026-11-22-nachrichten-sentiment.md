@@ -17,11 +17,12 @@
 - Stimmungswert = \(P(\text{positiv}) - P(\text{negativ})\), Intervall \([-1, +1]\); Modell ProsusAI/finbert, lokal, nur auf verfügbaren Titeln; Klasse nach argmax (`positive` / `neutral` / `negative`).
 - GDELT-eigener Tonwert (`V1.5TONE` / GCAM) und große KI-Sprachmodelle werden nicht verwendet.
 - Nahduplikat-Schwelle: `difflib.SequenceMatcher.ratio` mindestens 0,90 auf normalisierten Titeln desselben Berlin-Tages; Artikel ohne Titel werden nicht gruppiert.
-- Alle Diagramm- und Tooltip-Anzahlen beziehen sich auf URL-eindeutige Artikel; Balken zeigen nur `count_positive` (grün nach oben, `--up` `#26a69a`) und `count_negative` (rot nach unten, `--down` `#ef5350`); Gesamtzahl und Neutralzahl stehen im Tooltip, nicht als Balken.
+- Gesamtzahl bezieht sich auf URL-eindeutige Artikel; Klassen-Anzahlen, Balken und Tagesmittelwert nur auf Artikel ohne Nahduplikate (`is_near_duplicate == false`, Änderung vom 24.11.2026); Balken zeigen nur `count_positive` (grün nach oben, `--up` `#26a69a`) und `count_negative` (rot nach unten, `--down` `#ef5350`); Gesamtzahl und Neutralzahl stehen im Tooltip, nicht als Balken.
 - CSS-Farben wörtlich: `--bg` `#0d1117`, `--card` `#161b22`, `--line` `#30363d`, `--txt` `#e6edf3`, `--mut` `#8b949e`, `--up` `#26a69a`, `--down` `#ef5350`, `--acc` `#58a6ff`, aktiver Chip-Hintergrund `#1f2937`, Fußzeile `#6e7681`.
 - Arbeitstitel der Seite: „Nachrichten-Sentiment“, Untertitel „Nvidia (NVDA)“; Schrift `system-ui, -apple-system, Segoe UI, Roboto, sans-serif`; Zeitraum-Chips: 1 Monat, 3 Monate, 1 Jahr, 5 Jahre, Maximum.
 - Täglicher Lauf um 06:00 Europe/Berlin per GitHub Action, zusätzlich `workflow_dispatch`; bei Fehlschlag keine neue Pages-Veröffentlichung; E-Mail über die GitHub-Actions-Benachrichtigung an ExplorationSE.
 - Erstlauf lokal oder in mehreren fortsetzbaren Läufen; nach jeder erfolgreich verarbeiteten 15-Minuten-Datei Fortschritt schreiben.
+- Coverage eines Berlin-Tages ist `"complete"` nur, wenn jeder dafür erwartete 15-Minuten-Satz tatsächlich erfolgreich verarbeitet wurde; nicht abgerufene Tage sind immer `"gap"`, niemals `"complete"` mit Zählung 0. `processed_batch_ids` enthält nur tatsächlich erfolgreiche Sätze, nicht alle IDs vom ersten GKG-Satz bis zum Cursor.
 - Nicht im Umfang: weitere Aktien im Lieferumfang, Kursdaten, Handelssignale, LLM-Bewertung, übersetzter GDELT-Strom, eigener Server oder Datenbank.
 
 ---
@@ -62,7 +63,7 @@ Jede Datei hat eine Verantwortung; der ausführende Agent legt Dateien erst in d
 | `site/lwc.js` | Lokal eingebundenes Lightweight Charts (Vendor-Datei) |
 | `site/data/` | Erzeugte `nvda-daily.json` und `nvda/YYYY-MM.json` |
 | `data/articles/nvda/` | `YYYY-MM.jsonl` (Bestand) |
-| `data/state/progress.json` | Fortschritt, Lücken, fehlgeschlagene Titelnachladeversuche |
+| `data/state/progress.json` | Fortschritt, Lücken, erfolgreiche Spannen (`successful_spans`), fehlgeschlagene Titelnachladeversuche |
 | `data/state/gaps.log` | Nur Anhangprotokoll |
 | `data/tmp/` | Kurzlebige Downloads, nicht ins Git |
 | `.github/workflows/daily.yml` | Zeitplan, Tageslauf, bedingtes Pages-Deploy |
@@ -83,7 +84,7 @@ Jede Datei hat eine Verantwortung; der ausführende Agent legt Dateien erst in d
 
 **Schnittstellen:**
 - Nutzt: nichts.
-- Liefert: `CompanyConfig(ticker: str, display_name: str, name_substrings: tuple[str, ...], ticker_word: str)`; `Article` und `DailyRow` wie unten; `ProjectPaths(root: Path)` mit Eigenschaften `data_dir`, `articles_dir(ticker: str) -> Path`, `state_dir`, `progress_path`, `gaps_log_path`, `site_dir`, `site_data_dir`, `company_config_path`, `tmp_dir`; `load_company(ticker: str, path: Path | None = None) -> CompanyConfig`; `default_root() -> Path`.
+- Liefert: `CompanyConfig(ticker: str, display_name: str, name_substrings: tuple[str, ...], ticker_word: str)`; `Article` und `DailyRow` wie unten; `ProgressState(last_success_batch_id: str | None, cursor_batch_id: str | None, open_gaps: list[str], failed_title_fetches: dict[str, str], successful_spans: list[list[str]] = [])` wobei `successful_spans` inklusive `[start_id, end_id]`-Spannen tatsächlich erfolgreicher Sätze sind; `ProjectPaths(root: Path)` mit Eigenschaften `data_dir`, `articles_dir(ticker: str) -> Path`, `state_dir`, `progress_path`, `gaps_log_path`, `site_dir`, `site_data_dir`, `company_config_path`, `tmp_dir`; `load_company(ticker: str, path: Path | None = None) -> CompanyConfig`; `default_root() -> Path`.
 
 - [ ] **Schritt 1: Fehlschlagenden Test schreiben**
 
@@ -114,7 +115,7 @@ def test_load_company_unknown_ticker_raises():
 
 
 def test_project_paths_layout():
-    root = Path("/workspace/nachrichten-sentiment")
+    root = Path("/tmp/ns-project-root")
     paths = ProjectPaths(root)
     assert paths.company_config_path == root / "config" / "companies.json"
     assert paths.progress_path == root / "data" / "state" / "progress.json"
@@ -123,7 +124,7 @@ def test_project_paths_layout():
     assert paths.site_dir == root / "site"
     assert paths.site_data_dir == root / "site" / "data"
     assert paths.tmp_dir == root / "data" / "tmp"
-    assert default_root() == root
+    assert default_root() == Path(__file__).resolve().parents[1]
 
 
 def test_article_and_daily_row_fields():
@@ -230,7 +231,7 @@ data/tmp/
 ```python
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal, Optional
 
 
@@ -295,6 +296,7 @@ class ProgressState:
     cursor_batch_id: Optional[str]
     open_gaps: list[str]
     failed_title_fetches: dict[str, str]
+    successful_spans: list[list[str]] = field(default_factory=list)
 ```
 
 `src/nachrichten_sentiment/paths.py`:
@@ -1512,7 +1514,7 @@ git commit -m "feat: FinBERT-Adapter und markierter Plausibilitätstest"
 
 **Schnittstellen:**
 - Nutzt: `Article`, `DailyRow` aus Aufgabe 1; `expected_batch_ids_for_berlin_day(day: date) -> list[str]` aus Aufgabe 2; `mark_near_duplicates` aus Aufgabe 9 (die Tests übergeben bereits markierte Artikel oder rufen die Funktion auf).
-- Liefert: `aggregate_daily(articles: list[Article], day: date, processed_batch_ids: set[str]) -> DailyRow`. Es gilt `count_positive + count_neutral + count_negative + count_without_sentiment = count_unique_url`. `count_after_near_dup_collapse` zählt Artikel mit `is_near_duplicate is False`. `sentiment_mean` ist das arithmetische Mittel aller nicht-leeren `sentiment`-Werte (einschließlich Nahduplikate) oder `None`. `coverage` ist `"complete"`, wenn jedes Element von `expected_batch_ids_for_berlin_day(day)` in `processed_batch_ids` liegt, sonst `"gap"`.
+- Liefert: `aggregate_daily(articles: list[Article], day: date, processed_batch_ids: set[str]) -> DailyRow`. Es gilt `count_positive + count_neutral + count_negative + count_without_sentiment = count_unique_url`. `count_after_near_dup_collapse` zählt Artikel mit `is_near_duplicate is False`. `sentiment_mean` ist das arithmetische Mittel aller nicht-leeren `sentiment`-Werte (einschließlich Nahduplikate) oder `None`. `coverage` ist `"complete"` nur, wenn jedes Element von `expected_batch_ids_for_berlin_day(day)` in `processed_batch_ids` liegt, sonst `"gap"`. Nicht abgerufene Tage (keine tatsächlich erfolgreichen Sätze in `processed_batch_ids`) sind immer `"gap"`, niemals `"complete"` mit Zählung 0, auch wenn der Cursor zeitlich hinter diesem Tag liegt.
 
 - [ ] **Schritt 1: Fehlschlagenden Test schreiben**
 
@@ -1643,8 +1645,8 @@ git commit -m "feat: Tageswerte mit Positiv-, Neutral- und Negativzahl sowie Lü
 - Test: `tests/test_progress.py`
 
 **Schnittstellen:**
-- Nutzt: `ProgressState` aus Aufgabe 1; `FIRST_BATCH_ID`, `next_batch_id` aus Aufgabe 2.
-- Liefert: `load_progress(path: Path) -> ProgressState`; `save_progress(path: Path, state: ProgressState) -> None`; `append_gap_log(path: Path, message: str) -> None`; `processed_batch_ids(state: ProgressState) -> set[str]` (alle IDs von `FIRST_BATCH_ID` bis `cursor_batch_id` einschließlich, ohne `open_gaps`; leer wenn `cursor_batch_id` fehlt); `batches_to_process(state: ProgressState, until_id: str) -> list[str]` (zuerst offene Lücken in zeitlicher Folge, danach neue Sätze nach dem Cursor bis `until_id` inklusive, ohne Duplikate). Nach Erfolg ruft die Pipeline `mark_success(state, batch_id)` auf, nach endgültigem Fehlschlag `mark_gap(state, batch_id)`. `cursor_batch_id` ist der höchste bereits versuchte Satz; `last_success_batch_id` bleibt der letzte erfolgreiche Satz laut Spec.
+- Nutzt: `ProgressState` (einschließlich `successful_spans: list[list[str]]`) aus Aufgabe 1; `FIRST_BATCH_ID`, `iter_batch_ids`, `next_batch_id` aus Aufgabe 2.
+- Liefert: `load_progress(path: Path) -> ProgressState`; `save_progress(path: Path, state: ProgressState) -> None`; `append_gap_log(path: Path, message: str) -> None`; `processed_batch_ids(state: ProgressState) -> set[str]` (nur tatsächlich erfolgreiche Sätze, also die Vereinigung aller inklusiven Spannen in `successful_spans`; niemals alle IDs von `FIRST_BATCH_ID` bis zum Cursor); `batches_to_process(state: ProgressState, until_id: str) -> list[str]` (zuerst offene Lücken in zeitlicher Folge, danach neue Sätze nach dem Cursor bis `until_id` inklusive, ohne Duplikate). Nach Erfolg ruft die Pipeline `mark_success(state, batch_id)` auf, nach endgültigem Fehlschlag `mark_gap(state, batch_id)`. `cursor_batch_id` ist der höchste bereits versuchte Satz; `last_success_batch_id` wird nur vorgesetzt, wenn `batch_id` neuer ist oder der Wert noch fehlt, und bleibt beim Nachholen älterer Lücken unverändert. `mark_success` fügt den Satz in `successful_spans` ein und verschmilzt benachbarte 15-Minuten-Spannen.
 
 - [ ] **Schritt 1: Fehlschlagenden Test schreiben**
 
@@ -1688,7 +1690,24 @@ def test_progress_roundtrip_resume_and_gap_log(tmp_path: Path):
     assert "missing 20150218231500" in log.read_text(encoding="utf-8")
     empty = load_progress(tmp_path / "missing.json")
     assert empty.cursor_batch_id is None
+    assert empty.successful_spans == []
     assert batches_to_process(empty, "20150218231500") == ["20150218230000", "20150218231500"]
+    mark_success(loaded, "20150218231500")
+    assert loaded.last_success_batch_id == "20150218233000"
+    assert "20150218231500" not in loaded.open_gaps
+    assert "20150218231500" in processed_batch_ids(loaded)
+
+
+def test_processed_batch_ids_only_contain_actual_successes():
+    state = ProgressState(last_success_batch_id=None, cursor_batch_id=None, open_gaps=[], failed_title_fetches={})
+    mark_success(state, "20150219000000")
+    processed = processed_batch_ids(state)
+    assert processed == {"20150219000000"}
+    assert "20150218230000" not in processed
+    assert "20150218234500" not in processed
+    mark_success(state, "20150218230000")
+    assert state.last_success_batch_id == "20150219000000"
+    assert processed_batch_ids(state) == {"20150218230000", "20150219000000"}
 ```
 
 - [ ] **Schritt 2: Test ausführen und Fehlschlag prüfen**
@@ -1720,6 +1739,7 @@ def load_progress(path: Path) -> ProgressState:
         cursor_batch_id=raw.get("cursor_batch_id"),
         open_gaps=list(raw.get("open_gaps", [])),
         failed_title_fetches=dict(raw.get("failed_title_fetches", {})),
+        successful_spans=[list(span) for span in raw.get("successful_spans", [])],
     )
 
 
@@ -1732,6 +1752,7 @@ def save_progress(path: Path, state: ProgressState) -> None:
                 "cursor_batch_id": state.cursor_batch_id,
                 "open_gaps": state.open_gaps,
                 "failed_title_fetches": state.failed_title_fetches,
+                "successful_spans": state.successful_spans,
             },
             indent=2,
             sort_keys=True,
@@ -1747,11 +1768,31 @@ def append_gap_log(path: Path, message: str) -> None:
         handle.write(f"{stamp} {message}\n")
 
 
+def _merge_successful_span(spans: list[list[str]], batch_id: str) -> list[list[str]]:
+    items = [[start, end] for start, end in spans]
+    items.append([batch_id, batch_id])
+    items.sort(key=lambda span: span[0])
+    merged: list[list[str]] = []
+    for start, end in items:
+        if not merged:
+            merged.append([start, end])
+            continue
+        _prev_start, prev_end = merged[-1]
+        if start <= prev_end or start <= next_batch_id(prev_end):
+            if end > prev_end:
+                merged[-1][1] = end
+        else:
+            merged.append([start, end])
+    return merged
+
+
 def mark_success(state: ProgressState, batch_id: str) -> None:
     if batch_id in state.open_gaps:
         state.open_gaps.remove(batch_id)
-    state.last_success_batch_id = batch_id
+    if state.last_success_batch_id is None or batch_id > state.last_success_batch_id:
+        state.last_success_batch_id = batch_id
     state.cursor_batch_id = batch_id if state.cursor_batch_id is None or batch_id > state.cursor_batch_id else state.cursor_batch_id
+    state.successful_spans = _merge_successful_span(state.successful_spans, batch_id)
 
 
 def mark_gap(state: ProgressState, batch_id: str) -> None:
@@ -1762,10 +1803,10 @@ def mark_gap(state: ProgressState, batch_id: str) -> None:
 
 
 def processed_batch_ids(state: ProgressState) -> set[str]:
-    if not state.cursor_batch_id:
-        return set()
-    all_ids = set(iter_batch_ids(FIRST_BATCH_ID, state.cursor_batch_id))
-    return all_ids - set(state.open_gaps)
+    ids: set[str] = set()
+    for start, end in state.successful_spans:
+        ids.update(iter_batch_ids(start, end))
+    return ids
 
 
 def batches_to_process(state: ProgressState, until_id: str) -> list[str]:
@@ -1788,7 +1829,7 @@ def batches_to_process(state: ProgressState, until_id: str) -> list[str]:
 
 Run: `pytest tests/test_progress.py -v`
 
-Expected: PASS, ein Test.
+Expected: PASS, zwei Tests.
 
 - [ ] **Schritt 5: Commit**
 
@@ -1805,7 +1846,7 @@ git commit -m "feat: Fortschrittsdatei, Lückenprotokoll und fortsetzbare Satzli
 
 **Schnittstellen:**
 - Nutzt: `ProjectPaths.tmp_dir` aus Aufgabe 1 nur in der Pipeline; die Funktion selbst bekommt einen Zielordner.
-- Liefert: `gkg_url(batch_id: str) -> str` immer mit `https://data.gdeltproject.org/gdeltv2/{batch_id}.gkg.csv.zip`; Ausnahmen `MissingGkgError(batch_id)` und `DownloadError(batch_id, message)`; `download_gkg_zip(batch_id: str, dest_dir: Path, retries: int = 3, backoff_seconds: float = 0.0, fetcher=None) -> Path`. `fetcher(url: str) -> bytes` kann im Test ersetzt werden. Nach `retries` Versuchen: HTTP 404 wird zu `MissingGkgError`, andere Fehler zu `DownloadError`. Die ZIP wird nach `{dest_dir}/{batch_id}.gkg.csv.zip` geschrieben.
+- Liefert: `gkg_url(batch_id: str) -> str` immer mit `https://data.gdeltproject.org/gdeltv2/{batch_id}.gkg.csv.zip`; Ausnahmen `MissingGkgError(batch_id)` und `DownloadError(batch_id, message)`; `download_gkg_zip(batch_id: str, dest_dir: Path, retries: int = 3, backoff_seconds: float = 2.0, fetcher=None) -> Path`. `fetcher(url: str) -> bytes` kann im Test ersetzt werden. Nach `retries` Versuchen: HTTP 404 wird zu `MissingGkgError`, andere Fehler zu `DownloadError`. Die ZIP wird nach `{dest_dir}/{batch_id}.gkg.csv.zip` geschrieben.
 
 - [ ] **Schritt 1: Fehlschlagenden Test schreiben**
 
@@ -2341,7 +2382,7 @@ git commit -m "feat: einen GKG-15-Minuten-Satz filternd und fortsetzbar verarbei
 
 **Schnittstellen:**
 - Nutzt: `process_batch`, `batches_to_process`, `load_progress`, `load_articles`, `UrlIndex`, `mark_near_duplicates`, `aggregate_daily`, `processed_batch_ids`, `write_daily`, `write_headlines`, `expected_batch_ids_for_berlin_day`, `previous_berlin_day`, `FIRST_BATCH_ID`, `load_company`, `ProjectPaths`, `default_root`.
-- Liefert: `rebuild_outputs(paths: ProjectPaths, company: CompanyConfig, progress: ProgressState) -> list[DailyRow]` (lädt alle Artikel, setzt Nahduplikate neu, schreibt Tages- und Schlagzeilendateien für alle Berlin-Tage von `FIRST_BERLIN_DAY` bis zum Tag des Cursors, `coverage` über `processed_batch_ids`); `run_batches(batch_ids: list[str], **kwargs) -> None`; `run_initial(paths, company, model, title_opener, until_id: str | None) -> None`; `run_daily(paths, company, model, title_opener, day: date | None = None) -> None` (Vortag in Europe/Berlin plus offene Lücken, `until_id` = letzter Satz des Zieltags); `run_trial(paths, company, model, title_opener, start_day: date, days: int = 7, fetcher=None, extract_zip=None) -> None`. CLI: `python -m nachrichten_sentiment erstlauf [--until YYYYMMDDHHMMSS]`, `python -m nachrichten_sentiment tageslauf [--day YYYY-MM-DD]`, `python -m nachrichten_sentiment probelauf --start YYYY-MM-DD [--days 7] [--fixture-dir PATH]`.
+- Liefert: `rebuild_outputs(paths: ProjectPaths, company: CompanyConfig, progress: ProgressState) -> list[DailyRow]` (lädt alle Artikel, setzt Nahduplikate neu, schreibt Tages- und Schlagzeilendateien für alle Berlin-Tage von `FIRST_BERLIN_DAY` bis zum Tag des Cursors; `coverage` über tatsächlich erfolgreiche Sätze in `processed_batch_ids`, nicht über den Cursor-Bereich — nicht abgerufene Tage sind `"gap"`); `run_batches(batch_ids: list[str], **kwargs) -> None`; `run_initial(paths, company, model, title_opener, until_id: str | None) -> None`; `run_daily(paths, company, model, title_opener, day: date | None = None) -> None` (Vortag in Europe/Berlin plus offene Lücken, `until_id` = letzter Satz des Zieltags); `run_trial(paths, company, model, title_opener, start_day: date, days: int = 7, fetcher=None, extract_zip=None) -> None`. CLI: `python -m nachrichten_sentiment erstlauf [--until YYYYMMDDHHMMSS]`, `python -m nachrichten_sentiment tageslauf [--day YYYY-MM-DD]`, `python -m nachrichten_sentiment probelauf --start YYYY-MM-DD [--days 7] [--fixture-dir PATH]`.
 
 - [ ] **Schritt 1: Fehlschlagenden Test schreiben**
 
@@ -2387,7 +2428,7 @@ def test_run_trial_rebuilds_daily_and_cli_parses():
     assert args3.until == "20150218234500"
 ```
 
-Ergänze denselben Test oder einen zweiten Test `test_run_trial_week_writes_coverage`, der `run_trial` über einen Berlin-Tag mit vollständig erzeugten Fixture-Sätzen aufruft. Dafür in `tests/helpers.py` eine Funktion `make_gkg_text(batch_id: str, records: list[str]) -> str` ist nicht nötig: der Test übergibt `extract_zip` und `fetcher`, und für alle `expected_batch_ids_for_berlin_day(date(2019, 9, 23))` liefert `extract_zip` eine Leerdatei, außer für den ersten Satz mit einer Nvidia-Zeile. Nach `run_trial(..., start_day=date(2019, 9, 23), days=1)` muss `site/data/nvda-daily.json` einen Tag `2019-09-23` mit `coverage == "complete"` und `count_unique_url == 1` enthalten.
+Ergänze denselben Test oder einen zweiten Test `test_run_trial_week_writes_coverage`, der `run_trial` über einen Berlin-Tag mit vollständig erzeugten Fixture-Sätzen aufruft. Dafür in `tests/helpers.py` eine Funktion `make_gkg_text(batch_id: str, records: list[str]) -> str` ist nicht nötig: der Test übergibt `extract_zip` und `fetcher`, und für alle `expected_batch_ids_for_berlin_day(date(2019, 9, 23))` liefert `extract_zip` eine Leerdatei, außer für den ersten Satz mit einer Nvidia-Zeile. Nach `run_trial(..., start_day=date(2019, 9, 23), days=1)` schreibt `rebuild_outputs` die Reihe von `FIRST_BERLIN_DAY` bis zum Cursor-Tag: `days[0]` ist der 19. Februar 2015 mit `coverage == "gap"` und Zählung 0; der 22. September 2019 ist ebenfalls `"gap"`; der 23. September 2019 hat `coverage == "complete"` und `count_unique_url == 1`.
 
 Vollständiger zweiter Test:
 
@@ -2425,9 +2466,13 @@ def test_run_trial_one_complete_day(tmp_path: Path, monkeypatch):
         extract_zip=extract_zip,
     )
     daily = json.loads((tmp_path / "site" / "data" / "nvda-daily.json").read_text(encoding="utf-8"))
-    assert daily["days"][0]["date"] == "2019-09-23"
-    assert daily["days"][0]["coverage"] == "complete"
-    assert daily["days"][0]["count_unique_url"] == 1
+    days = {row["date"]: row for row in daily["days"]}
+    assert daily["days"][0]["date"] == "2015-02-19"
+    assert daily["days"][0]["coverage"] == "gap"
+    assert daily["days"][0]["count_unique_url"] == 0
+    assert days["2019-09-22"]["coverage"] == "gap"
+    assert days["2019-09-23"]["coverage"] == "complete"
+    assert days["2019-09-23"]["count_unique_url"] == 1
     assert load_articles(paths, "NVDA")[0].title.startswith("NVIDIA news")
 ```
 
@@ -2511,13 +2556,9 @@ def run_initial(paths, company, model, title_opener, until_id: str | None = None
 
 def run_daily(paths, company, model, title_opener, day: date | None = None, fetcher=None, extract_zip=None) -> None:
     target = day or previous_berlin_day()
-    wanted = expected_batch_ids_for_berlin_day(target)
+    until_id = expected_batch_ids_for_berlin_day(target)[-1]
     progress = load_progress(paths.progress_path)
-    processed = processed_batch_ids(progress)
-    todo = [batch_id for batch_id in progress.open_gaps]
-    for batch_id in wanted:
-        if batch_id not in processed and batch_id not in todo:
-            todo.append(batch_id)
+    todo = batches_to_process(progress, until_id)
     run_batches(todo, company=company, paths=paths, model=model, title_opener=title_opener, fetcher=fetcher, extract_zip=extract_zip)
 
 
@@ -2657,7 +2698,7 @@ git commit -m "feat: CLI für Erstlauf, Tageslauf und Probelauf"
 
 **Schnittstellen:**
 - Nutzt: das JSON-Format aus Aufgabe 15 (`days[]` mit `date`, `count_unique_url`, `count_after_near_dup_collapse`, `count_positive`, `count_neutral`, `count_negative`, `count_without_sentiment`, `sentiment_mean`, `coverage`).
-- Liefert: in `site/chart_data.js` (ohne DOM, in Node testbar) `formatTooltip(row) -> string`, `toBarSeries(days) -> { up: Array<{time: string, value: number|null}>, down: Array<{time: string, value: number|null}> }`, `toLineSeries(days) -> Array<{time: string, value: number|null, color: string}>`, `rangeStart(endDate: string, rangeKey: string) -> string | null`. Lückentage (`coverage === "gap"`) haben `value: null` in beiden Balken- und der Linienserie, niemals 0. Zeitraum-Schlüssel: `1M`, `3M`, `1J`, `5J`, `max`. Farben `#26a69a` und `#ef5350` wörtlich.
+- Liefert: in `site/chart_data.js` (ohne DOM, in Node testbar) `formatTooltip(row) -> string`, `toBarSeries(days) -> { up: Array<{time: string, value: number|null}>, down: Array<{time: string, value: number|null}> }`, `toLineSeries(days) -> Array<{time: string, value: number|null, color: string}>`, `rangeStart(endDate: string, rangeKey: string) -> string | null`. Lückentage (`coverage === "gap"`) haben `value: null` in beiden Balken- und der Linienserie, niemals 0. Der Tooltip eines Lückentags beginnt mit `unvollständig — ` und darf nicht wie eine vollständige Null (`0 Nachrichten` am Textanfang) erscheinen. Zeitraum-Schlüssel: `1M`, `3M`, `1J`, `5J`, `max`. Farben `#26a69a` und `#ef5350` wörtlich; `app.js` übergibt die Punktfarbe aus `toLineSeries` an die Linie.
 
 - [ ] **Schritt 1: Fehlschlagenden Test schreiben**
 
@@ -2702,6 +2743,33 @@ test("tooltip mentions missing scores and dashes sentiment", () => {
   });
   assert.match(text, /5 ohne Wert/);
   assert.match(text, /Stimmung —/);
+});
+
+test("gap tooltip is marked incomplete and not a complete zero day", () => {
+  const emptyGap = formatTooltip({
+    count_unique_url: 0,
+    count_positive: 0,
+    count_neutral: 0,
+    count_negative: 0,
+    count_without_sentiment: 0,
+    count_after_near_dup_collapse: 0,
+    sentiment_mean: null,
+    coverage: "gap",
+  });
+  assert.match(emptyGap, /^unvollständig — /);
+  assert.doesNotMatch(emptyGap, /^0 Nachrichten/);
+  const partialGap = formatTooltip({
+    count_unique_url: 2,
+    count_positive: 1,
+    count_neutral: 0,
+    count_negative: 1,
+    count_without_sentiment: 0,
+    count_after_near_dup_collapse: 2,
+    sentiment_mean: 0.1,
+    coverage: "gap",
+  });
+  assert.match(partialGap, /^unvollständig — /);
+  assert.match(partialGap, /2 Nachrichten/);
 });
 
 test("bars go up green and down red, gaps are null not zero", () => {
@@ -2796,7 +2864,9 @@ function formatNumber(value) {
 }
 
 function formatTooltip(row) {
+  const gapPrefix = row.coverage === "gap" ? "unvollständig — " : "";
   let text =
+    gapPrefix +
     row.count_unique_url +
     " Nachrichten: " +
     row.count_positive +
@@ -2974,7 +3044,13 @@ function attachCharts(days) {
   const linePoints = toLineSeries(days);
   up.setData(bars.up);
   down.setData(bars.down);
-  line.setData(linePoints.map((p) => ({ time: p.time, value: p.value })));
+  line.setData(
+    linePoints.map((p) =>
+      p.value === null || p.value === undefined
+        ? { time: p.time }
+        : { time: p.time, value: p.value, color: p.color }
+    )
+  );
   const byDate = Object.fromEntries(days.map((d) => [d.date, d]));
 
   function showTip(date) {
@@ -3226,7 +3302,7 @@ git commit -m "feat: GitHub Action um 06:00 Europe/Berlin mit bedingtem Pages-De
 
 **Schnittstellen:**
 - Nutzt: `run_trial`, `ProjectPaths`, `load_company`, `load_articles`, `load_progress`, `expected_batch_ids_for_berlin_day`, Fixture-Öffner aus den Tests.
-- Liefert: einen automatisierten Gesamttest über sieben Berlin-Tage ab 2019-09-23 (GKG-Titel sind dann enthalten): alle erwarteten 15-Minuten-Sätze als minimale ZIPs, die meisten ohne Treffer, ausgewählte Sätze mit Nvidia-Titeln, ein künstlich fehlender Satz als Lücke, Fortsetzen nach Unterbrechung und Prüfung von `nvda-daily.json` plus einer Schlagzeilen-Datei.
+- Liefert: einen automatisierten Gesamttest über sieben Berlin-Tage ab 2019-09-23 (GKG-Titel sind dann enthalten): alle erwarteten 15-Minuten-Sätze als minimale ZIPs, die meisten ohne Treffer, ausgewählte Sätze mit Nvidia-Titeln, ein künstlich fehlender Satz als Lücke, Fortsetzen nach einer echten Unterbrechung (Fehler, der nicht zur Lücke wird) und Prüfung von `nvda-daily.json` plus einer Schlagzeilen-Datei. Nicht abgerufene Tage vor dem 23. September 2019 (mindestens `2015-02-19` und `2019-09-22`) müssen `coverage == "gap"` haben, niemals `complete` mit Zählung 0.
 
 - [ ] **Schritt 1: Fehlschlagenden Test schreiben**
 
@@ -3286,6 +3362,7 @@ def write_week(dest: Path, start: date, days: int = 7, missing_batch_id: str | N
 ```python
 # tests/test_trial_week.py
 import json
+import zipfile
 from datetime import date
 from pathlib import Path
 
@@ -3293,7 +3370,7 @@ from nachrichten_sentiment.companies import load_company
 from nachrichten_sentiment.download import MissingGkgError
 from nachrichten_sentiment.paths import ProjectPaths
 from nachrichten_sentiment.pipeline import run_trial
-from nachrichten_sentiment.progress import load_progress
+from nachrichten_sentiment.progress import load_progress, processed_batch_ids
 from nachrichten_sentiment.store import load_articles
 from nachrichten_sentiment.timeutil import expected_batch_ids_for_berlin_day
 from tests.fixtures.build_week import write_week
@@ -3319,28 +3396,48 @@ def test_trial_week_gap_resume_and_site_files(tmp_path: Path):
             raise MissingGkgError(batch_id)
         return file.read_bytes()
 
-    # Interrupt after the first two batches of the first day by pre-limiting via a wrapper.
+    # Echte Unterbrechung: extract_zip wirft nach drei erfolgreichen Sätzen RuntimeError,
+    # den process_batch nicht in eine Lücke umwandelt.
     seen = {"n": 0}
-    real_fetcher = fetcher
+    interrupted_at = {"id": None}
 
-    def fetcher_once(url: str) -> bytes:
+    def extract_or_interrupt(path: Path) -> str:
+        batch_id = path.name.split(".")[0]
         seen["n"] += 1
         if seen["n"] > 3:
+            interrupted_at["id"] = batch_id
             raise RuntimeError("interrupted")
-        return real_fetcher(url)
+        with zipfile.ZipFile(path) as archive:
+            return archive.read(archive.namelist()[0]).decode("utf-8", errors="replace")
 
     try:
-        run_trial(paths, company, _Model(), lambda url, timeout: "", start, days=7, fetcher=fetcher_once)
+        run_trial(
+            paths,
+            company,
+            _Model(),
+            lambda url, timeout: "",
+            start,
+            days=7,
+            fetcher=fetcher,
+            extract_zip=extract_or_interrupt,
+        )
     except RuntimeError:
         pass
     mid = load_progress(paths.progress_path)
     assert mid.cursor_batch_id is not None
-    # Resume with the full fetcher.
+    assert interrupted_at["id"] is not None
+    assert interrupted_at["id"] not in processed_batch_ids(mid)
+    assert interrupted_at["id"] not in mid.open_gaps
+    # Resume with the full fetcher and normal zip extraction.
     run_trial(paths, company, _Model(), lambda url, timeout: "", start, days=7, fetcher=fetcher)
     progress = load_progress(paths.progress_path)
     assert missing in progress.open_gaps
     daily = json.loads((tmp_path / "site" / "data" / "nvda-daily.json").read_text(encoding="utf-8"))
     days = {row["date"]: row for row in daily["days"]}
+    assert daily["days"][0]["date"] == "2015-02-19"
+    assert daily["days"][0]["coverage"] == "gap"
+    assert daily["days"][0]["count_unique_url"] == 0
+    assert days["2019-09-22"]["coverage"] == "gap"
     assert days["2019-09-23"]["coverage"] == "gap"
     assert days["2019-09-23"]["count_unique_url"] == 1
     assert days["2019-09-24"]["coverage"] == "complete"

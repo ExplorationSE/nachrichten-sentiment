@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0d1117">
+  <title>Nachrichten-Sentiment</title>
+  <style>
+    :root{--bg:#0d1117;--card:#161b22;--line:#30363d;--txt:#e6edf3;--mut:#8b949e;--up:#26a69a;--down:#ef5350;--acc:#58a6ff}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+    header,main,footer{max-width:960px;margin:0 auto;padding:12px 16px}
+    h1{font-size:22px;margin:0}
+    .sub{color:var(--mut);margin-top:4px}
+    .ranges{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}
+    .ranges button{background:transparent;border:1px solid var(--line);color:var(--mut);border-radius:999px;padding:5px 11px;font-size:13px}
+    .ranges button.on{background:#1f2937;color:var(--txt);border-color:var(--acc)}
+    .modes{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin:0 0 12px}
+    .modes button{background:transparent;border:0;color:var(--mut);padding:5px 13px;font-size:13px;cursor:pointer}
+    .modes button+button{border-left:1px solid var(--line)}
+    .modes button.on{background:#1f2937;color:var(--txt);box-shadow:inset 0 -2px 0 var(--acc)}
+    .modes button:focus-visible,.ranges button:focus-visible{outline:2px solid var(--acc);outline-offset:-2px}
+    #bars,#line{height:220px;background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:12px}
+    #tooltip{font-size:13px;color:var(--mut);min-height:20px}
+    #headlines{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+    #headlines h2{font-size:16px;margin:0 0 8px}
+    #headlines a{color:var(--acc)}
+    .dup{color:var(--mut);margin-left:16px}
+    footer{font-size:10px;color:#6e7681;text-align:center}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Nachrichten-Sentiment</h1>
+    <div class="sub">Nvidia (NVDA)</div>
+    <p class="sub">Die Balken zählen positive und negative Nachrichten nach der FinBERT-Klasse (argmax). Die Linie zeigt den abgestuften Tagesmittelwert von P(positiv) minus P(negativ) über dieselben Nachrichten und kann deshalb von den Balken abweichen. Mit dem Umschalter wählen Sie die Zählweise: „Ohne Nahduplikate“ (Standard) zählt eine vielfach übernommene Meldung nur einmal und zeigt die inhaltliche Nachrichtenlage; „Alle Nachrichten“ zählt jede Meldung inklusive Nahduplikaten und zeigt die Gesamtmenge. Neutrale Nachrichten, die Gesamtzahl und die Zahl ohne Nahduplikate stehen im Tooltip.</p>
+    <div class="modes" id="modes" role="radiogroup" aria-label="Zählweise">
+      <button type="button" role="radio" data-mode="alle" aria-checked="false">Alle Nachrichten</button>
+      <button type="button" role="radio" data-mode="ohne" aria-checked="true" class="on">Ohne Nahduplikate</button>
+    </div>
+    <div class="ranges" id="ranges">
+      <button data-range="1M">1 Monat</button>
+      <button data-range="3M">3 Monate</button>
+      <button data-range="1J">1 Jahr</button>
+      <button data-range="5J">5 Jahre</button>
+      <button data-range="max" class="on">Maximum</button>
+    </div>
+    <div id="tooltip"></div>
+  </header>
+  <main>
+    <div id="bars"></div>
+    <div id="line"></div>
+    <section id="headlines"><h2>Schlagzeilen</h2><p class="sub">Klicken Sie auf einen Tag.</p></section>
+  </main>
+  <footer>Nachrichtenlage zur Aktiengesellschaft, keine Anlageberatung.</footer>
+  <script src="lwc.js"></script>
+  <script src="chart_data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
