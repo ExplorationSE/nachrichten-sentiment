@@ -1,39 +1,45 @@
 "use strict";
 
 const MODE_STORAGE_KEY = "nachrichten-sentiment.zaehlung";
+const VIEW_STORAGE_KEY = "nachrichten-sentiment.ansicht";
 
-function readStoredMode() {
+function readStored(key) {
   try {
-    return window.localStorage.getItem(MODE_STORAGE_KEY);
+    return window.localStorage.getItem(key);
   } catch {
     return null;
   }
 }
 
-function rememberMode(mode) {
+function remember(key, param, value) {
   try {
-    window.localStorage.setItem(MODE_STORAGE_KEY, mode);
+    window.localStorage.setItem(key, value);
   } catch {
     // Ohne Speicherzugriff (z. B. privater Modus) bleibt die Auswahl nur in der Adresse erhalten.
   }
   try {
     const url = new URL(window.location.href);
-    url.searchParams.set("zaehlung", mode);
+    url.searchParams.set(param, value);
     window.history.replaceState(null, "", url);
   } catch {
     // Manche Umgebungen (z. B. file:// oder Sandbox-iframes) verbieten das Ändern der Adresse.
   }
 }
 
-function markModeButtons(mode) {
-  document.querySelectorAll("#modes button").forEach((el) => {
-    const active = el.getAttribute("data-mode") === mode;
+function markButtons(selector, attribute, value) {
+  document.querySelectorAll(selector + " button").forEach((el) => {
+    const active = el.getAttribute(attribute) === value;
     el.classList.toggle("on", active);
     el.setAttribute("aria-checked", active ? "true" : "false");
   });
 }
 
-let currentMode = resolveMode(window.location.search, readStoredMode());
+function markModeButtons(mode) {
+  markButtons("#modes", "data-mode", mode);
+}
+
+let currentMode = resolveMode(window.location.search, readStored(MODE_STORAGE_KEY));
+let currentView = resolveView(window.location.search, readStored(VIEW_STORAGE_KEY));
 let openDate = null;
 
 async function loadDaily() {
@@ -93,6 +99,16 @@ function attachCharts(days) {
   const up = barChart.addHistogramSeries({ color: "#26a69a", priceFormat: { type: "volume" } });
   const down = barChart.addHistogramSeries({ color: "#ef5350", priceFormat: { type: "volume" } });
   const line = lineChart.addLineSeries({ color: "#e6edf3", priceLineVisible: true });
+  const candles = lineChart.addCandlestickSeries({
+    upColor: "#26a69a",
+    downColor: "#ef5350",
+    borderUpColor: "#26a69a",
+    borderDownColor: "#ef5350",
+    wickUpColor: "#26a69a",
+    wickDownColor: "#ef5350",
+    priceLineVisible: false,
+    visible: false,
+  });
   const byDate = Object.fromEntries(days.map((d) => [d.date, d]));
   let tipDate = null;
 
@@ -109,16 +125,42 @@ function attachCharts(days) {
           : { time: p.time, value: p.value, color: p.color }
       )
     );
+    // Lücken bleiben auch als Kerze Whitespace-Punkte ohne OHLC.
+    candles.setData(toCandleSeries(days, mode));
+  }
+
+  function showView(view) {
+    line.applyOptions({ visible: view === "linie" });
+    candles.applyOptions({ visible: view === "kerzen" });
+    markButtons("#views", "data-view", view);
   }
 
   function showTip(date) {
     tipDate = date;
     const row = byDate[date];
-    tooltip.textContent = row ? formatTooltip(row, currentMode) : "";
+    if (!row) {
+      tooltip.textContent = "";
+      return;
+    }
+    let text = formatTooltip(row, currentMode);
+    if (currentView === "kerzen") text += " · " + formatCandle(row, currentMode);
+    tooltip.textContent = text;
   }
 
   render(currentMode);
   markModeButtons(currentMode);
+  showView(currentView);
+
+  document.getElementById("views").addEventListener("click", (event) => {
+    const button = event.target.closest("button");
+    if (!button) return;
+    const view = resolveView("", button.getAttribute("data-view"));
+    if (view === currentView) return;
+    currentView = view;
+    showView(view);
+    if (tipDate) showTip(tipDate);
+    remember(VIEW_STORAGE_KEY, "ansicht", view);
+  });
 
   document.getElementById("modes").addEventListener("click", (event) => {
     const button = event.target.closest("button");
@@ -137,10 +179,13 @@ function attachCharts(days) {
     if (tipDate) showTip(tipDate);
     if (openDate) updateDayHeading(openDate, byDate[openDate]);
     // Erst nach dem Neuzeichnen merken, damit ein Speicherfehler die Anzeige nicht blockiert.
-    rememberMode(mode);
+    remember(MODE_STORAGE_KEY, "zaehlung", mode);
   });
 
   barChart.subscribeCrosshairMove((param) => {
+    if (param && param.time) showTip(param.time);
+  });
+  lineChart.subscribeCrosshairMove((param) => {
     if (param && param.time) showTip(param.time);
   });
   barChart.subscribeClick((param) => {

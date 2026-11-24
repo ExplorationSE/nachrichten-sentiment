@@ -74,6 +74,10 @@ def test_incremental_runs_equal_full_rebuild(tmp_path: Path):
             + row["count_without_sentiment_all"]
         )
         assert classes_all == row["count_unique_url"]
+        # Kerze je Zählweise als kompakte Liste [O, H, L, C, Sätze].
+        for key in ("ohlc", "ohlc_all"):
+            o, h, l, c, n = row[key]
+            assert l <= min(o, c) <= max(o, c) <= h and n >= 1
 
 
 def test_incremental_run_leaves_flags_and_files_of_other_days_untouched(tmp_path: Path):
