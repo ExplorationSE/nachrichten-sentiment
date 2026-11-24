@@ -108,14 +108,29 @@ def _decode(body: bytes, charset: str | None) -> str:
         return body.decode("utf-8", errors="replace")
 
 
+def _open_html(url: str, timeout_seconds: float) -> str:
+    request = urllib.request.Request(url, headers={"User-Agent": "NachrichtenSentiment/0.1"})
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+        body = response.read(MAX_HTML_BYTES)
+        return _decode(body, response.headers.get_content_charset())
+
+
 def http_title_opener(url: str, timeout_seconds: float, pause_seconds: float = 0.3) -> str:
-    scheme = urllib.parse.urlsplit(url.strip()).scheme.lower()
+    cleaned = url.strip()
+    parts = urllib.parse.urlsplit(cleaned)
+    scheme = parts.scheme.lower()
     if scheme not in ("http", "https"):
         # fetch_title fängt den Fehler ab und cacht die URL als fehlend.
         raise ValueError(f"unsupported URL scheme: {scheme or '(none)'}")
     if pause_seconds:
         time.sleep(pause_seconds)
-    request = urllib.request.Request(url, headers={"User-Agent": "NachrichtenSentiment/0.1"})
-    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-        body = response.read(MAX_HTML_BYTES)
-        return _decode(body, response.headers.get_content_charset())
+    try:
+        return _open_html(cleaned, timeout_seconds)
+    except Exception as first:
+        if scheme != "http":
+            raise
+        # Manche Netze (z. B. Proxys) blockieren unverschlüsseltes HTTP; dieselbe Adresse per HTTPS versuchen.
+        try:
+            return _open_html(urllib.parse.urlunsplit(parts._replace(scheme="https")), timeout_seconds)
+        except Exception:
+            raise first from None

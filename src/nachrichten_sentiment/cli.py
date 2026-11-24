@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import signal
 from datetime import date
 from pathlib import Path
 
 from nachrichten_sentiment.companies import load_company
 from nachrichten_sentiment.paths import ProjectPaths, default_root
-from nachrichten_sentiment.pipeline import run_daily, run_initial, run_trial
+from nachrichten_sentiment.pipeline import DEFAULT_WORKERS, run_daily, run_initial, run_trial
 from nachrichten_sentiment.titles import http_title_opener
 
 
@@ -27,6 +28,12 @@ def build_parser() -> argparse.ArgumentParser:
             "--voll-neuaufbau",
             action="store_true",
             help="Nahduplikate, Monatsdateien und Schlagzeilen für alle Tage neu berechnen statt nur betroffene",
+        )
+        command.add_argument(
+            "--parallel",
+            type=int,
+            default=DEFAULT_WORKERS,
+            help=f"Anzahl paralleler Downloads (Standard {DEFAULT_WORKERS}, 1 = nacheinander)",
         )
     probelauf = sub.add_parser("probelauf", help="einige Berlin-Tage zur Probe verarbeiten")
     probelauf.add_argument("--start", required=True, help="erster Tag YYYY-MM-DD")
@@ -54,8 +61,14 @@ def _fixture_fetcher(fixture: Path):
     return fetcher
 
 
+def _exit_on_sigterm(signum, frame):
+    # SIGTERM wie Strg+C behandeln: laufende Downloads sauber beenden, gespeicherter Stand bleibt konsistent.
+    raise SystemExit(128 + signum)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    signal.signal(signal.SIGTERM, _exit_on_sigterm)
     root = default_root()
     paths = ProjectPaths(root)
     company = load_company("NVDA")
@@ -69,6 +82,7 @@ def main(argv: list[str] | None = None) -> int:
             until_id=args.until,
             retry_missing=args.luecken_erneut,
             full_rebuild=args.voll_neuaufbau,
+            workers=max(1, args.parallel),
         )
     elif args.command == "tageslauf":
         day = date.fromisoformat(args.day) if args.day else None
@@ -80,6 +94,7 @@ def main(argv: list[str] | None = None) -> int:
             day=day,
             retry_missing=args.luecken_erneut,
             full_rebuild=args.voll_neuaufbau,
+            workers=max(1, args.parallel),
         )
     elif args.command == "probelauf":
         fetcher = _fixture_fetcher(Path(args.fixture_dir)) if args.fixture_dir else None
