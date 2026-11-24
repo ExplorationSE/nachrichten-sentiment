@@ -29,6 +29,8 @@ Optionen für `erstlauf` und `tageslauf`:
 
 - `--luecken-erneut`: holt auch an der Quelle fehlende Sätze (GDELT antwortet mit 404) erneut ab, die älter als 7 Tage sind. Ohne diese Option werden sie nur in den ersten 7 Tagen nach ihrem Zeitstempel erneut versucht.
 - `--voll-neuaufbau`: berechnet Nahduplikate, Monatsdateien und Schlagzeilen für alle Tage neu. Ohne die Option geschieht das nur für die Berlin-Tage der in diesem Lauf verarbeiteten Sätze.
+- `--parallel N` (Standard 8): lädt, entpackt und filtert bis zu N Sätze gleichzeitig vor (echte Downloads in eigenen Prozessen). Übernommen werden die Sätze strikt in zeitlicher Reihenfolge; der Fortschritt (`cursor_batch_id`) rückt nur bis zum letzten lückenlos fertigen Satz vor, ein Abbruch (Strg+C oder SIGTERM) hinterlässt keine Lücke und der nächste Lauf setzt dort fort. `--parallel 1` verarbeitet nacheinander wie bisher. Etwa alle 96 Sätze erscheint eine Fortschrittszeile mit Satz, Anzahl und s/Satz.
+- Titelabruf: Scheitert eine `http://`-Adresse (etwa weil ein Proxy unverschlüsseltes HTTP blockiert), wird dieselbe Adresse einmal per `https://` versucht.
 
 ## Erstlauf: Umfang und Dauer
 

@@ -151,3 +151,23 @@ def test_cli_parallel_option_defaults_to_eight():
     assert parser.parse_args(["erstlauf"]).parallel == 8
     assert parser.parse_args(["erstlauf", "--parallel", "3"]).parallel == 3
     assert parser.parse_args(["tageslauf"]).parallel == 8
+
+
+def test_prefetch_reports_new_title_failures_only_with_private_cache(tmp_path: Path):
+    batch_id = IDS[0]
+    cols = [""] * 27
+    cols[0], cols[1], cols[2], cols[3] = "t1", batch_id, "1", "example.com"
+    cols[4], cols[13], cols[14] = "https://example.com/ohne-titel", "NVIDIA", "NVIDIA,10"
+    body = "\t".join(cols) + "\n"
+    fetcher = lambda url: gkg_zip_bytes(batch_id, body)  # noqa: E731
+
+    def failing_opener(url, timeout):
+        raise OSError("weg")
+
+    private = prefetch_batch(batch_id, tmp_path, load_company("NVDA"), failing_opener, fetcher)
+    assert list(private.failed_titles) == ["https://example.com/ohne-titel"]
+    shared: dict[str, str] = {"https://alt.example/": "alt"}
+    direct = prefetch_batch(batch_id, tmp_path, load_company("NVDA"), failing_opener, fetcher, failed_cache=shared)
+    # Mit gemeinsamem Cache landen Fehler direkt dort; keine Kopie des (großen) Caches je Satz.
+    assert direct.failed_titles == {}
+    assert "https://example.com/ohne-titel" in shared and "https://alt.example/" in shared

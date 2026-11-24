@@ -124,8 +124,9 @@ def prefetch_batch(
         if leftover.exists():
             leftover.unlink()
 
-    cache = {} if failed_cache is None else failed_cache
-    before = set(cache)
+    # Ohne gemeinsamen Cache (parallele Worker) sammelt ein eigener Cache die neuen Fehlschläge;
+    # mit gemeinsamem Cache (nacheinander) landen sie direkt im Fortschritt, ohne ihn je Satz zu kopieren.
+    cache: dict[str, str] = {} if failed_cache is None else failed_cache
     records = []
     fetched: dict[str, tuple[str, str]] = {}
     # splitlines() behandelt auch CRLF-Zeilenenden.
@@ -150,7 +151,7 @@ def prefetch_batch(
                 fetched[key] = ((result.title or ""), result.source)
             title, title_source = fetched[key]
         records.append((record, title, title_source))
-    failed = {key: cache[key] for key in cache if key not in before}
+    failed = cache if failed_cache is None else {}
     return PrefetchedBatch(batch_id, "ok", records=records, failed_titles=failed)
 
 
